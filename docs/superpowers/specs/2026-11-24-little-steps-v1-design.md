@@ -1,0 +1,40 @@
+# Little Steps V1 — Design Specification
+
+Ngày: 2026-11-24. Bản đề xuất để chủ dự án duyệt trước khi Codex viết code.
+
+## 1. Mục tiêu
+Ứng dụng cá nhân giúp trẻ thực hành bài tập quen thuộc trong phiên ngắn do người lớn thiết lập, chuyển tiếp sang hoạt động ngoài màn hình. Không phải ứng dụng điều trị hoặc đánh giá tự kỷ. Thành công là bài tập dễ hiểu, có thể dừng, không phải thời gian giữ chân trẻ.
+
+Nguồn yêu cầu: hai video minh họa đếm đồ vật và ghép hình bóng; ba ảnh bài tập giấy nối hình giống nhau (bò, lợn, gà trống, dê; dưa hấu, dâu, cam, chuối, táo; sao biển, cua, vỏ sò, tôm). Không sao chép hình ảnh/âm thanh của ứng dụng khác hoặc bài tập có bản quyền; tạo bộ hình riêng hoặc dùng tài nguyên có giấy phép phù hợp. Các chi tiết mới dưới đây là đề xuất thiết kế, không phải quan sát lâm sàng.
+
+## 2. Phạm vi và ràng buộc toàn cục
+- Android APK và web responsive; cả 3 trò chơi landscape. Android khóa landscape ở màn hình học; web bố trí landscape, khi màn hình hẹp/dọc hiển thị biểu tượng xoay máy, không dùng chữ ở chế độ trẻ. Không bắt buộc web khóa orientation bằng API không được hỗ trợ.
+- Vue 3 + TypeScript + Vite + pnpm; Capacitor Android; CSS/Tailwind tùy nhu cầu, Pinia chỉ nếu có lợi. Pointer Events + SVG cho thao tác nối/kéo; Vitest và Playwright. Không cần game engine.
+- Offline-first: APK đóng gói toàn bộ assets và audio; web sau lần tải/cài đặt thành công có cache offline bằng service worker, không phụ thuộc CDN. Không backend, database server, tài khoản, quảng cáo, analytics, tracking, AI, network API bên ngoài, leaderboard, streak, điểm thưởng hoặc mini game xen kẽ.
+- Màn hình trẻ không có chữ hướng dẫn, tên đồ vật, cấp độ, điểm hoặc đồng hồ đếm ngược. Ngoại lệ: chữ số là đáp án trong Game 01. Có nhãn accessibility không hiển thị, biểu tượng quay lại/dừng rõ ràng, không phụ thuộc màu để báo trạng thái. Phần người lớn có chữ tiếng Việt.
+- Nền trắng/kem nhạt (#FAF7EF), hình lớn, rõ ràng, nhất quán, khoảng cách đủ; không họa tiết, nhạc nền, nhấp nháy, rung phạt hoặc âm báo sai. Vùng chạm tối thiểu 48 CSS px, ưu tiên lớn hơn. Không cuộn trong màn hình học trên viewport landscape hỗ trợ. Tránh dùng emoji làm tài nguyên sản xuất.
+- Giọng nói tiếng Việt tùy chọn, có thể tắt; đọc hướng dẫn một lần khi bắt đầu, có nút nghe lại dạng biểu tượng; không nói chồng tiếng. Phản hồi đúng nhẹ nhàng; sai cho thử lại không trừ điểm. Có chế độ giảm/tắt chuyển động. Mặc định không nhạc, không rung, không tự tăng độ khó.
+- Người lớn có thể chọn trò, chủ đề, mức, thời lượng 5/10/15 phút hoặc số lượt 1–10 (giới hạn nào tới trước thì kết thúc); mặc định 5 phút và 3 lượt, có nút dừng ngay. Một lượt là một câu đếm hoặc một bảng ghép/nối hoàn thành. Không có tự động bắt đầu phiên mới.
+- Không lưu thông tin định danh, chẩn đoán hoặc dữ liệu trẻ. Chỉ lưu settings và session hiện hành trên thiết bị. Có nút xóa dữ liệu trong cài đặt. Không chia sẻ dữ liệu.
+
+## 3. Lựa chọn kiến trúc
+Vue + Capacitor được đề xuất vì thao tác chủ yếu là chạm/kéo/nối, tận dụng kỹ năng Vue/TS và có thể thử trên web trước APK. Phaser + Capacitor phù hợp nếu animation phức tạp nhưng không cần cho MVP; Flutter thêm chi phí học và stack. Tách engine thuần TS khỏi UI, thư viện assets chung, một session manager cho cả ba game. Dùng adapter lưu trữ localStorage trên web và Capacitor Preferences trên Android; dữ liệu phiên được ghi khi bắt đầu/kết thúc, không ghi mỗi frame.
+
+## 4. Luồng màn hình
+Trang chủ: ba thẻ biểu tượng lớn cho ba trò, khu vực cài đặt người lớn riêng (biểu tượng bánh răng; chỉ người lớn chủ động vào, không giả định đây là khóa bảo mật). Người lớn chọn trò/mức/chủ đề/thời lượng/số lượt, bắt đầu phiên. Trong phiên hiển thị đúng một nhiệm vụ và nút dừng. Hoàn thành lượt: dấu check ngắn, chuyển bài nếu còn thời gian và lượt; có thể tắt chuyển động. Kết thúc: dấu check và biểu tượng hoạt động ngoài màn hình, lời nói tùy chọn “Mình nghỉ nhé”, không có nút chơi tiếp trong màn hình trẻ. Người lớn chủ động quay về khu vực cài đặt để tạo phiên mới. Nút dừng khả dụng cho trẻ/người lớn, không buộc hoàn thành.
+
+## 5. Game 01 — Counting
+Hiển thị N hình giống nhau không chồng lấn ở giữa, 2–3 nút số lớn bên dưới. Câu đúng duy nhất; vị trí đáp án xáo trộn, đáp án nhiễu khác nhau, số dương trong miền mức (mức 1: 1–2). Mức 1: N=1–2, 2 đáp án; mức 2: 1–3, 2; mức 3: 1–5, 2; mức 4: 1–5, 3; mức 5: 1–10, 3. Chạm từng hình có thể đánh dấu đã đếm và phát số đếm tiếng Việt nếu bật audio; chạm lại không tăng đếm. Chạm sai giữ nguyên câu, không khóa đáp án; đúng khóa câu ngay, phát feedback và emit complete một lần. Không giới hạn thời gian từng câu.
+
+## 6. Game 02 — Shadow Matching
+Hai hàng (hình màu phía trên, bóng phía dưới), bố trí đích xáo trộn; có thể hỗ trợ cả chạm hình rồi chạm đích và kéo-thả bằng ngón tay. Hình bóng lấy từ đúng alpha mask của asset nguồn, không vẽ bóng khác hình. Mức 1: 1 cặp hình màu giống nhau để làm quen; mức 2: 1 cặp bóng; mức 3: 2 cặp bóng; mức 4: 3; mức 5: 4. Khi đúng, hình nằm ở đích và không tương tác lại; sai về vị trí ban đầu, không làm mất kết quả đúng trước đó. Khi đủ cặp, complete một lần.
+
+## 7. Game 03 — Connect Matching (ưu tiên đầu tiên)
+Hai cột hình màu giống nhau, ở trái/phải màn hình landscape. Khoảng trống giữa để nối đường. Mỗi hình có điểm nối hướng vào giữa, vùng chạm bao gồm cả hình. Hai cột là hoán vị của cùng bộ ID, không có hình trùng ID trong một bảng; nếu >=2, tránh thứ tự y hệt khi xáo trộn. Không yêu cầu đường tránh giao nhau. Kéo từ hình/điểm nối đến hình tương ứng hoặc chạm hình rồi chạm hình đối diện. Có thể bắt đầu từ bất cứ cột nào. Đường tạm theo ngón tay; đúng giữ đường nối, có dấu trạng thái nhẹ; sai/hủy xóa đường tạm, không phạt. Cặp hoàn thành khóa cả hai đầu. Kích thước/điểm nối cập nhật khi resize; không lưu tọa độ tuyệt đối. Hoàn thành tất cả cặp emit complete một lần. Không tự tăng mức.
+Mức 1–5 tương ứng 2/3/4/5/6 cặp. V1 mặc định 2 cặp, chủ đề do người lớn chọn. Trên màn hình điện thoại không đủ chiều cao cho 5–6 cặp với vùng chạm tối thiểu, chia bài thành bảng con (mỗi bảng ít nhất 2 nếu có thể) hoặc từ chối mức đó trong cài đặt với giải thích cho người lớn; không thu nhỏ vùng chạm dưới 48 px. V1 chọn từ chối mức không vừa, hiển thị giới hạn trong cài đặt; không thay đổi mức âm thầm. Nếu chủ đề chưa đủ asset, không cho chọn số cặp vượt số asset. Bộ ban đầu bổ sung đủ 6 asset/chủ đề nếu khả thi: động vật nuôi (bò, lợn, gà trống, dê, vịt, chó); trái cây (dưa hấu, dâu, cam, chuối, táo, lê); sinh vật biển (sao biển, cua, vỏ sò, tôm, cá, bạch tuộc); rau củ (cà chua, cà rốt, khoai tây, dưa chuột, bí đỏ, bắp cải); đồ dùng (bút chì, đồng hồ, cọ, thước, máy tính, sách). Các hình bổ sung là đề xuất, không phải nội dung bài giấy.
+
+## 8. Session manager
+Trạng thái idle/active/ended. Lưu ID phiên, game, settings snapshot, startedAt, deadlineAt, completedRounds, status và lý do kết thúc. Thời gian thực theo deadline tuyệt đối (bao gồm app background); khi trở lại hoặc reload, đọc phiên, đối chiếu deadline trước khi bật tương tác. Hết giờ giữa thao tác thì hủy kéo và kết thúc ngay; có thể báo trước 30 giây bằng lời nhẹ nếu bật âm thanh. Không kéo dài thời gian qua reload, đổi trò hoặc vào background; không tự tạo phiên mới. Nếu khôi phục dữ liệu hỏng hoặc đồng hồ lùi bất thường, kết thúc an toàn và yêu cầu người lớn tạo phiên mới. Lưu round count sau mỗi lượt; khôi phục có thể tạo lại bảng chưa hoàn thành, không tăng số lượt. Chỉ người lớn chủ động bắt đầu phiên. Không thay đổi settings đang chạy; dừng phiên trước khi thay đổi. Giới hạn chỉ áp dụng cho app này, không khóa điện thoại hoặc ứng dụng khác.
+
+## 9. Phạm vi không làm / kiểm tra thực tế
+Không thêm hệ thống điểm, phần thưởng gây cuốn, AI, tài khoản, dữ liệu sức khỏe, app store publishing hay hạ tầng cloud. Có thể thử từ 2 cặp, người lớn cùng làm và quan sát; tham khảo cô giáo về cách hướng dẫn phù hợp. Bản APK cần thử trên điện thoại Android thật (touch, landscape, airplane mode, background/resume, hết giờ, âm thanh). Nếu chưa có thiết bị/SDK/audio thật thì đánh dấu BLOCKED hoặc chưa xác minh, không tuyên bố hoàn thành.
