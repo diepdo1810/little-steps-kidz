@@ -98,7 +98,7 @@
   }
 
   .shadow-tile {
-    --compact-tile-size: clamp(48px, 20cqi, 56px);
+    --compact-tile-size: 48px;
     flex: 0 0 var(--compact-tile-size);
     block-size: var(--compact-tile-size);
   }

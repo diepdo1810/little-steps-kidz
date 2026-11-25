@@ -149,6 +149,41 @@ describe('ConnectGame', () => {
     expect(random.mock.calls.length).toBe(sampleCalls)
   })
 
+  it('balances four pairs into two subsets and keeps the same IDs when resized', async () => {
+    const { game, target, random } = setupGame(0.61, assets)
+    const ids = (side = 'left') => game.findAll<HTMLButtonElement>(`button[data-connect-side="${side}"]`)
+      .map(button => button.element.dataset.connectId!)
+    const sampled = ids()
+    const calls = random.mock.calls.length
+    const board = game.get('.connect-game').element
+    const bounds = vi.spyOn(board, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 456, 288))
+    notifyResize?.()
+    await nextTick()
+
+    expect(ids()).toEqual(sampled.slice(0, 2))
+    const firstMatched = sampled[0]!
+    await target('left', firstMatched).trigger('click')
+    await target('right', firstMatched).trigger('click')
+    expect(target('left', firstMatched).element.disabled).toBe(true)
+
+    bounds.mockReturnValue(new DOMRect(0, 0, 456, 120))
+    notifyResize?.()
+    await nextTick()
+    expect(ids()).toEqual(sampled.slice(1, 2))
+
+    bounds.mockReturnValue(new DOMRect(0, 0, 456, 288))
+    notifyResize?.()
+    await nextTick()
+    expect(ids()).toEqual(sampled.slice(0, 2))
+    expect(target('left', firstMatched).element.disabled).toBe(true)
+
+    await target('left', sampled[1]!).trigger('click')
+    await target('right', sampled[1]!).trigger('click')
+    expect(ids()).toEqual(sampled.slice(2))
+    expect(ids('right').sort()).toEqual(sampled.slice(2).sort())
+    expect(random.mock.calls.length).toBe(calls)
+  })
+
   it('does not render a board from an insufficient pool', () => {
     const { game } = setupGame(0.41)
     expect(game.findAll('button')).toHaveLength(0)
@@ -221,6 +256,55 @@ describe('ConnectGame', () => {
     expect(captureId).toBeUndefined()
     expect(game.find('line[data-preview]').exists()).toBe(false)
     expect(lineCount()).toBe(1)
+  })
+
+  it.each([
+    { side: 'left' as const, startX: 90, endX: 410 },
+    { side: 'right' as const, startX: 490, endX: 190 },
+  ])('snaps a drag released near the matching target from $side', async ({ side, startX, endX }) => {
+    const { game, target, lineCount, setGeometry } = setupGame()
+    setGeometry()
+    const source = target(side, 'cow').element
+    const opposite = side === 'left' ? 'right' : 'left'
+    await pointer(source, 'pointerdown', startX, 85)
+    await pointer(source, 'pointermove', endX, 85)
+    await pointer(source, 'pointerup', endX, 85)
+    expect(lineCount()).toBe(1)
+    expect(target(opposite, 'cow').attributes('data-connect-id')).toBe('cow')
+    expect(game.find('line[data-preview]').exists()).toBe(false)
+  })
+
+  it('snaps when the final pointer position reaches a nearby target without a move event', async () => {
+    const { target, lineCount, setGeometry } = setupGame()
+    setGeometry()
+    const source = target('left', 'cow').element
+    await pointer(source, 'pointerdown', 90, 85)
+    await pointer(source, 'pointerup', 410, 85)
+    expect(lineCount()).toBe(1)
+  })
+
+  it('does not snap a wrong target, an equal-distance gap, or a distant drag', async () => {
+    const { game, target, lineCount, setGeometry } = setupGame()
+    setGeometry()
+
+    const wrongSource = target('left', 'cow').element
+    await pointer(wrongSource, 'pointerdown', 90, 85)
+    await pointer(wrongSource, 'pointermove', 490, 155)
+    await pointer(wrongSource, 'pointerup', 490, 155)
+    expect(lineCount()).toBe(0)
+
+    const gapSource = target('left', 'cow').element
+    await pointer(gapSource, 'pointerdown', 90, 85)
+    await pointer(gapSource, 'pointermove', 490, 120)
+    await pointer(gapSource, 'pointerup', 490, 120)
+    expect(lineCount()).toBe(0)
+
+    const farSource = target('left', 'cow').element
+    await pointer(farSource, 'pointerdown', 90, 85)
+    await pointer(farSource, 'pointermove', 380, 85)
+    await pointer(farSource, 'pointerup', 380, 85)
+    expect(lineCount()).toBe(0)
+    expect(game.find('line[data-preview]').exists()).toBe(false)
   })
 
   it.each(['pointercancel', 'lostpointercapture'])('clears a pending gesture on %s', async (type) => {

@@ -31,6 +31,7 @@ interface Gesture {
 }
 
 const dragThreshold = 6
+const dragSnapRadius = 40
 const roomyRowHeight = 80
 const labels: Record<Side, string> = { left: 'Bên trái', right: 'Bên phải' }
 const area = ref<HTMLElement | null>(null)
@@ -45,15 +46,28 @@ const anchors = shallowRef<Record<Side, Map<string, Point>>>({ left: new Map(), 
 let observer: ResizeObserver | undefined
 let measured: DOMRect | undefined
 
-const pageStart = computed(() => {
-  if (!board.value) return 0
+const pageRanges = computed(() => {
+  if (!board.value) return []
+  const pages = Math.ceil(board.value.left.length / pageSize.value)
+  const baseSize = Math.floor(board.value.left.length / pages)
+  const largerPages = board.value.left.length % pages
+  let start = 0
+  return Array.from({ length: pages }, (_, page) => {
+    const size = baseSize + (page < largerPages ? 1 : 0)
+    const range = { start, end: start + size }
+    start += size
+    return range
+  })
+})
+const visibleRange = computed(() => {
+  if (!board.value) return { start: 0, end: 0 }
   const next = board.value.left.findIndex(({ id }) => !matched.value.includes(id))
   const index = next === -1 ? board.value.left.length - 1 : next
-  return Math.floor(index / pageSize.value) * pageSize.value
+  return pageRanges.value.find(({ start, end }) => index >= start && index < end) ?? { start: 0, end: 0 }
 })
 const visibleBoard = computed(() => {
   if (!board.value) return null
-  const left = board.value.left.slice(pageStart.value, pageStart.value + pageSize.value)
+  const left = board.value.left.slice(visibleRange.value.start, visibleRange.value.end)
   const ids = new Set(left.map(({ id }) => id))
   const right = board.value.right.filter(({ id }) => ids.has(id))
   return { left, right: rotateIfAligned(left, right) }
@@ -115,7 +129,7 @@ function measureBoard() {
   measureAnchors()
 }
 
-function targetAt(point: Point): Endpoint | null {
+function targetAt(point: Point, sourceSide: Side, dragged: boolean): Endpoint | null {
   // The event target stays at the source while it holds pointer capture.
   for (const button of targetButtons()) {
     const rect = button.getBoundingClientRect()
@@ -123,7 +137,26 @@ function targetAt(point: Point): Endpoint | null {
       return endpointOf(button)
     }
   }
-  return null
+  if (!dragged) return null
+
+  let nearest: { endpoint: Endpoint; distance: number } | undefined
+  let tied = false
+  for (const button of targetButtons()) {
+    if (button.disabled) continue
+    const endpoint = endpointOf(button)
+    if (!endpoint || endpoint.side === sourceSide) continue
+    const rect = button.getBoundingClientRect()
+    const dx = Math.max(rect.left - point.x, 0, point.x - rect.right)
+    const dy = Math.max(rect.top - point.y, 0, point.y - rect.bottom)
+    const distance = Math.hypot(dx, dy)
+    if (!nearest || distance < nearest.distance) {
+      nearest = { endpoint, distance }
+      tied = false
+    } else if (distance === nearest.distance) {
+      tied = true
+    }
+  }
+  return nearest && !tied && nearest.distance <= dragSnapRadius ? nearest.endpoint : null
 }
 
 function isSelected(side: Side, id: string) {
@@ -209,12 +242,13 @@ function onPointerUp(event: PointerEvent) {
   if (!playable.value) return
 
   const point = pointOf(event)
-  const target = targetAt(point)
   const { source, start, dragged } = current
+  const didDrag = dragged || moved(start, point)
+  const target = targetAt(point, source.side, didDrag)
   if (target && target.side !== source.side) {
     selected.value = null
     commit(source, target)
-  } else if (target?.id === source.id && !dragged && !moved(start, point)) {
+  } else if (target?.id === source.id && !didDrag) {
     select(source)
   } else {
     selected.value = null

@@ -123,10 +123,10 @@ test('connect_five_pairs_across_subsets_complete_one_round', async ({ page }) =>
 })
 
 test('connect_safe_area_reflows_the_same_board_without_losing_matches', async ({ page }) => {
-  await page.setViewportSize({ width: 740, height: 420 })
+  await page.setViewportSize({ width: 740, height: 490 })
   await fixSample(page, 0.999)
   await play(page)
-  await expect(connect(page, 'left')).toHaveCount(4)
+  await expect(connect(page, 'left')).toHaveCount(5)
   const [a, b, c, d] = await connectIds(page)
   await drag(page, connect(page, 'left', a), connect(page, 'right', a))
   await drag(page, connect(page, 'left', b), connect(page, 'right', b), false)
@@ -873,11 +873,11 @@ for (const [width, height] of [[568, 320], [800, 360]]) {
   })
 }
 
-test('all_counting_and_shadow_targets_fit_a_400x320_viewport_with_safe_area', async ({ page }) => {
+test('all_counting_and_shadow_targets_fit_a_400x320_viewport_with_combined_safe_areas', async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 320 })
   await fixSample(page, 0.999)
   await page.goto('/')
-  await page.addStyleTag({ content: ':root { --safe-area-inset-top: 16px; --safe-area-inset-bottom: 16px; --safe-area-inset-left: 24px; --safe-area-inset-right: 24px; }' })
+  await page.addStyleTag({ content: ':root { --safe-area-inset-top: 32px; --safe-area-inset-bottom: 24px; --safe-area-inset-left: 24px; --safe-area-inset-right: 24px; }' })
   for (const game of ['counting', 'shadow'] as const) {
     await play(page, game)
     const board = page.locator('.game-board')
