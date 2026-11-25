@@ -75,6 +75,30 @@ test('connect_two_pairs_tap_and_drag', async ({ page }) => {
   await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1 })
 })
 
+test('connect_drag_snaps_when_released_32px_beyond_either_tile_edge', async ({ page }) => {
+  await fixSample(page, 0.25)
+  await play(page, 'connect')
+  const [leftId, rightId] = await connectIds(page)
+
+  const leftFrom = await center(connect(page, 'left', leftId))
+  const rightTarget = await connect(page, 'right', leftId).boundingBox()
+  expect(rightTarget).not.toBeNull()
+  await page.mouse.move(leftFrom.x, leftFrom.y)
+  await page.mouse.down()
+  await page.mouse.move(rightTarget!.x - 32, rightTarget!.y + rightTarget!.height / 2, { steps: 5 })
+  await page.mouse.up()
+
+  const rightFrom = await center(connect(page, 'right', rightId))
+  const leftTarget = await connect(page, 'left', rightId).boundingBox()
+  expect(leftTarget).not.toBeNull()
+  await page.mouse.move(rightFrom.x, rightFrom.y)
+  await page.mouse.down()
+  await page.mouse.move(leftTarget!.x + leftTarget!.width + 32, leftTarget!.y + leftTarget!.height / 2, { steps: 5 })
+  await page.mouse.up()
+
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1 })
+})
+
 test('connect_wrong_pair_cancel_resize', async ({ page }) => {
   await fixSample(page, 0.25)
   await play(page)
