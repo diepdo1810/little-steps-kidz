@@ -121,7 +121,7 @@ describe('ConnectGame', () => {
 
   it('pages the original five pairs without completing early or resampling', async () => {
     const { game, random, target } = setupGame(0.999, assets)
-    const visibleIds = () => game.findAll<HTMLButtonElement>('button[data-connect-side="left"]')
+    const visibleIds = (side = 'left') => game.findAll<HTMLButtonElement>(`button[data-connect-side="${side}"]`)
       .map(button => button.element.dataset.connectId!)
     const sampled = visibleIds()
     const sampleCalls = random.mock.calls.length
@@ -135,7 +135,10 @@ describe('ConnectGame', () => {
       await target('left', id).trigger('click')
       await target('right', id).trigger('click')
     }
-    expect(visibleIds()).toEqual(sampled.slice(3))
+    const last = sampled.slice(3)
+    expect(visibleIds()).toEqual(last)
+    expect(new Set(visibleIds('right'))).toEqual(new Set(last))
+    expect(visibleIds('right')).not.toEqual(last)
     expect(game.emitted('complete')).toBeUndefined()
     for (const id of sampled.slice(3)) {
       await target('left', id).trigger('click')

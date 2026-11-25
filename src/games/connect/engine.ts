@@ -26,11 +26,14 @@ export function createBoard(pool: readonly Asset[], pairs: number, rng: Rng): Bo
   }
 
   const left = shuffle(pool, rng).slice(0, pairs)
-  const right = shuffle(left, rng)
-  if (pairs > 1 && right.every((asset, index) => asset.id === left[index].id)) {
-    return { left, right: [...right.slice(1), right[0]] }
+  return { left, right: rotateIfAligned(left, shuffle(left, rng)) }
+}
+
+export function rotateIfAligned(left: readonly Asset[], right: Asset[]): Asset[] {
+  if (right.length > 1 && right.every((asset, index) => asset.id === left[index]?.id)) {
+    return [...right.slice(1), right[0]]
   }
-  return { left, right }
+  return right
 }
 
 export function connectPair(

@@ -9,11 +9,13 @@ Ngày kiểm tra 2026-11-25 trên nhánh `feature/little-steps-v1`.
 | `pnpm test` | 130 unit tests passed in 10 files |
 | `pnpm typecheck` | Passed |
 | `pnpm build` | Passed. The production bundle includes the versioned service worker and local asset cache. |
-| `pnpm exec playwright test --list` | 43 browser tests in 2 files |
+| `pnpm exec playwright test --list` | 44 browser tests in 2 files |
 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium pnpm test:e2e` | Local Chromium launch blocked. The wrapper exits 127 because `/usr/lib/chromium/chromium` is absent. |
 | `pnpm exec cap sync android` | Passed. Synced the production web bundle and Preferences plugin. |
 
 The browser suite covers one- and five-item boards, matching across Connect subsets, safe-area reflow, full-screen layout at 568×320 and 800×360, portrait rotation, adult settings, and five rounds ending the default session. It also checks that a 15-minute background interval preserves progress and that reload, data clearing, Android Back, cross-tab writes, offline use, and quiet mode retain their expected behavior.
+
+GitHub Actions run `45593096587` passed 42 of 43 browser tests. The drag test rejected a horizontal SVG preview because Playwright's visibility check required a positive bounding-box height. The test now checks the actual SVG stroke length and still verifies that the same session stays active and records one round after a 15-minute clock advance. Review of the run's 568×320 screenshots covered preparation and all three games. The next run will verify the test fix, the reordered Connect subset, and full target visibility at 400×320 with safe-area insets.
 
 ## Android and GitHub Actions
 

@@ -55,8 +55,8 @@ async function drag(page: Page, source: Locator, target: Locator, release = true
 function connect(page: Page, side: string, id?: string) {
   return page.locator(`[data-connect-side="${side}"]${id ? `[data-connect-id="${id}"]` : ''}`)
 }
-async function connectIds(page: Page) {
-  return connect(page, 'left').evaluateAll((buttons) => buttons.map(b => (b as HTMLElement).dataset.connectId!))
+async function connectIds(page: Page, side = 'left') {
+  return connect(page, side).evaluateAll((buttons) => buttons.map(b => (b as HTMLElement).dataset.connectId!))
 }
 async function screenshot(page: Page, name: string) {
   const path = test.info().outputPath(name + '.png')
@@ -108,7 +108,10 @@ test('connect_five_pairs_across_subsets_complete_one_round', async ({ page }) =>
   await expect(connect(page, 'left')).toHaveCount(2)
   await expect(page.locator('.connect-lines line')).toHaveCount(0)
   const last = await connectIds(page)
+  const right = await connectIds(page, 'right')
   expect(new Set([...first, ...last]).size).toBe(5)
+  expect(new Set(right)).toEqual(new Set(last))
+  expect(right).not.toEqual(last)
   expect((await saved(page))?.completedRounds).toBe(0)
   await screenshot(page, 'connect-second-subset')
   for (const id of last) {
@@ -232,7 +235,11 @@ for (const scenario of ['drag', 'feedback'] as const) {
     if (scenario === 'drag') {
       const [a] = await connectIds(page)
       await drag(page, connect(page, 'left', a), connect(page, 'right', a), false)
-      await expect(page.locator('line[data-preview]')).toBeVisible()
+      const preview = page.locator('line[data-preview]')
+      // A horizontal SVG line has a zero-height bounding box and a visible stroke.
+      await expect(preview).toHaveCount(1)
+      expect(await preview.evaluate(line => (line as SVGLineElement).getTotalLength())).toBeGreaterThan(0)
+      expect(await saved(page)).toMatchObject({ status: 'active', completedRounds: 0, id: session.id })
       await page.clock.setSystemTime(session.startedAt + 900_000)
       await page.mouse.up()
     } else {
@@ -865,6 +872,38 @@ for (const [width, height] of [[568, 320], [800, 360]]) {
     }
   })
 }
+
+test('all_counting_and_shadow_targets_fit_a_400x320_viewport_with_safe_area', async ({ page }) => {
+  await page.setViewportSize({ width: 400, height: 320 })
+  await fixSample(page, 0.999)
+  await page.goto('/')
+  await page.addStyleTag({ content: ':root { --safe-area-inset-top: 16px; --safe-area-inset-bottom: 16px; --safe-area-inset-left: 24px; --safe-area-inset-right: 24px; }' })
+  for (const game of ['counting', 'shadow'] as const) {
+    await play(page, game)
+    const board = page.locator('.game-board')
+    const bounds = (await board.boundingBox())!
+    const targets = board.getByRole('button')
+    await expect(targets).toHaveCount(game === 'counting' ? 8 : 10)
+    const boxes = await targets.evaluateAll(els => els.map(el => el.getBoundingClientRect().toJSON()))
+    for (const [i, a] of boxes.entries()) {
+      await expect(targets.nth(i)).toBeInViewport({ ratio: 1 })
+      await expect(targets.nth(i)).toBeEnabled()
+      expect(Math.min(a.width, a.height)).toBeGreaterThanOrEqual(48)
+      expect(a.left).toBeGreaterThanOrEqual(bounds.x)
+      expect(a.top).toBeGreaterThanOrEqual(bounds.y)
+      expect(a.right).toBeLessThanOrEqual(bounds.x + bounds.width)
+      expect(a.bottom).toBeLessThanOrEqual(bounds.y + bounds.height)
+      for (const b of boxes.slice(i + 1)) {
+        expect(Math.max(a.left - b.right, b.left - a.right, a.top - b.bottom, b.top - a.bottom)).toBeGreaterThanOrEqual(15.9)
+      }
+    }
+    await expectViewport(page, 400, 320)
+    await screenshot(page, game + '-400x320-safe-area-landscape')
+    await stop(page).click()
+    await adult(page).click()
+    await home(page).click()
+  }
+})
 
 test('counting_one_object_has_three_distinct_numeric_choices', async ({ page }) => {
   await fixSample(page, 0)

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { MAX_ROUND_ITEMS, sampleRoundSize } from '../../assets/catalog'
 import type { GameProps } from '../../shared/contracts'
-import { connectPair, createBoard, maxPairsForHeight } from './engine'
+import { connectPair, createBoard, maxPairsForHeight, rotateIfAligned } from './engine'
 import type { Board } from './engine'
 
 const props = defineProps<GameProps>()
@@ -55,7 +55,8 @@ const visibleBoard = computed(() => {
   if (!board.value) return null
   const left = board.value.left.slice(pageStart.value, pageStart.value + pageSize.value)
   const ids = new Set(left.map(({ id }) => id))
-  return { left, right: board.value.right.filter(({ id }) => ids.has(id)) }
+  const right = board.value.right.filter(({ id }) => ids.has(id))
+  return { left, right: rotateIfAligned(left, right) }
 })
 
 const playable = computed(() => props.active && board.value !== null && matched.value.length < board.value.left.length)

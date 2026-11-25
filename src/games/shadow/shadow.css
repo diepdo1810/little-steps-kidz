@@ -90,3 +90,16 @@
   object-fit: contain;
   pointer-events: none;
 }
+
+@container game-board (inline-size < 304px) {
+  .shadow-row {
+    flex-wrap: wrap;
+    align-content: center;
+  }
+
+  .shadow-tile {
+    --compact-tile-size: clamp(48px, 20cqi, 56px);
+    flex: 0 0 var(--compact-tile-size);
+    block-size: var(--compact-tile-size);
+  }
+}

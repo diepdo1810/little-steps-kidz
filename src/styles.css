@@ -111,7 +111,7 @@ button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke
 .learning-controls .round-feedback { position: absolute; inset-block-start: calc(50% - 1.375rem); }
 .icon-button { width: var(--tap-target-size); height: var(--tap-target-size); padding: 0; color: #3d5e4c; }
 .stop-button { color: #714e43; border-color: #d8cabe; background: #fff9f2; }
-.game-board { min-height: 0; min-width: 0; }
+.game-board { min-height: 0; min-width: 0; container: game-board / inline-size; }
 .orientation-prompt, .session-end { display: grid; place-items: center; }
 .orientation-prompt { position: fixed; inset: 0; padding: var(--screen-padding); pointer-events: none; }
 .orientation-prompt > svg { width: min(42vw, 150px); fill: none; stroke: #64826c; stroke-width: 3.5; stroke-linejoin: round; stroke-linecap: round; }

@@ -81,3 +81,21 @@
   opacity: 1;
   cursor: default;
 }
+
+/* Five 48px targets and their gaps require 304px of board width. */
+@container game-board (inline-size < 304px) {
+  .counting-objects {
+    flex-wrap: wrap;
+    align-content: center;
+  }
+
+  .counting-object {
+    --compact-tile-size: clamp(48px, 20cqi, 56px);
+    flex: 0 0 var(--compact-tile-size);
+    block-size: var(--compact-tile-size);
+  }
+
+  .counting-choice {
+    inline-size: min(clamp(56px, 16vw, 140px), calc((100% - 2 * var(--tile-gap, 16px)) / 3));
+  }
+}
