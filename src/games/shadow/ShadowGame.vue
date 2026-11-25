@@ -139,14 +139,14 @@ function onPointerCancel(event: PointerEvent) {
 
 function targetLabel(asset: Asset) {
   if (matched.value.includes(asset.id)) return `Đã ghép ${asset.labelVi}`
-  return `${board.value?.useShadow ? 'Bóng' : 'Ô đích ghép'} ${asset.labelVi}`
+  return `Bóng ${asset.labelVi}`
 }
 
 watch(() => props.roundKey, () => {
   clearInteraction()
   matched.value = []
   try {
-    board.value = createShadowBoard(props.assets, props.settings.level, Math.random)
+    board.value = createShadowBoard(props.assets, Math.random)
   } catch (error) {
     if (!(error instanceof RangeError)) throw error
     board.value = null
@@ -227,7 +227,7 @@ onBeforeUnmount(() => {
           @click="onTargetClick(asset.id)"
         >
           <span
-            v-if="board.useShadow && !matched.includes(asset.id)"
+            v-if="!matched.includes(asset.id)"
             class="shadow-art shadow-silhouette"
             :style="{ '--shadow-image': `url(&quot;${asset.image}&quot;)` }"
             aria-hidden="true"

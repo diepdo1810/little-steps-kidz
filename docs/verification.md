@@ -1,35 +1,29 @@
-# Little Steps V1 — Verification
+# Little Steps 1.1 — Verification
 
-Ngày kiểm tra: 2026-11-25. Nhánh: `feature/little-steps-v1`.
+Ngày kiểm tra 2026-11-25 trên nhánh `feature/little-steps-v1`.
 
-## Web verification
+## Web
 
-| Lệnh | Kết quả gần nhất |
+| Lệnh | Kết quả |
 | --- | --- |
-| `pnpm test` | 114 unit tests passed |
+| `pnpm test` | 130 unit tests passed in 10 files |
 | `pnpm typecheck` | Passed |
-| `pnpm build` | Passed; generated versioned service worker and local asset cache |
-| `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=<local-headless-shell> pnpm test:e2e` | 37 browser tests passed, including settings conflicts, safe-area changes, recovery, and Android Back during start/resume |
-| `pnpm exec cap sync android` | Passed; copied the production web bundle and registered Preferences plugin |
+| `pnpm build` | Passed. The production bundle includes the versioned service worker and local asset cache. |
+| `pnpm exec playwright test --list` | 43 browser tests in 2 files |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium pnpm test:e2e` | Local Chromium launch blocked. The wrapper exits 127 because `/usr/lib/chromium/chromium` is absent. |
+| `pnpm exec cap sync android` | Passed. Synced the production web bundle and Preferences plugin. |
 
-The browser suite covers all three games, deadline handling, settings validation and cross-tab conflicts, interrupted session recovery, inset changes during adult setup and play, cross-tab writes, offline reload, text restrictions, and Android Back event routing including interrupted start and resume. It does not replace a physical device test. The independent whole-branch review found no remaining Critical, Important, or Minor code findings after fixes.
+The browser suite covers one- and five-item boards, matching across Connect subsets, safe-area reflow, full-screen layout at 568×320 and 800×360, portrait rotation, adult settings, and five rounds ending the default session. It also checks that a 15-minute background interval preserves progress and that reload, data clearing, Android Back, cross-tab writes, offline use, and quiet mode retain their expected behavior.
 
-## Android build blocker
+## Android and GitHub Actions
 
-`./gradlew assembleDebug` could not start because the Gradle wrapper distribution is not cached and this execution environment cannot reach `services.gradle.org` (`java.net.SocketException: Network is unreachable`). No Android SDK, `adb`, `sdkmanager`, emulator, or `ANDROID_HOME`/`ANDROID_SDK_ROOT` was available during inspection. The debug APK therefore does not exist in this workspace; no APK path or checksum is reported.
+The Android activity requests `sensorLandscape` at launch. The package declares the `game` category and is version 1.1 (`versionCode 2`). This environment lacks Android SDK tools and a cached Gradle distribution. The local Capacitor sync verifies the web bundle, while Android compilation and APK delivery run in GitHub Actions.
 
-The project uses Capacitor Android 8.6.2, Gradle wrapper 8.14.3, Android Gradle Plugin 8.13.0, JDK 21 in this environment, and compile/target SDK 36. Android source/config is present and `cap sync` passed, but Java/Gradle compilation is unverified until the wrapper and Android SDK are available.
+The workflow at `.github/workflows/android-apk.yml` installs Android API 36 build tools and Chromium, runs the verification suite, and builds `assembleDebug`. It uploads the test results and landscape screenshots as `browser-checks-*` and the debug APK as `little-steps-debug-apk-*`. Both artifacts are retained for 14 days.
 
-The manifest classifies this educational mini-game app as `game`, so Android 16's large-screen orientation exception applies. The native orientation behavior still needs a device/emulator check.
+## Device checks
 
-## GitHub Actions APK build
-
-`.github/workflows/android-apk.yml` runs on every branch push, pull requests targeting `main`, and manual dispatch. It runs unit tests, typecheck and browser tests, installs Android API 36 build tools, syncs the Capacitor project, builds `assembleDebug`, and uploads `app-debug.apk` as a 14-day Actions artifact. This environment has not executed the GitHub-hosted workflow yet; confirm the first remote run before treating the APK artifact as verified.
-
-## Native and release checks still pending
-
-- Install and cold launch on an Android emulator or physical device in airplane mode.
-- Verify orientation transitions, system Back, touch/drag, WebView resume, background expiry, reload recovery, and data clearing on the target WebView.
-- Confirm screenshot appearance and target sizes on the actual device. Adult review of the original illustrations remains a release check.
-- Vietnamese recordings are not present; audio stays muted and audible playback is not tested.
-- Store publishing, signing, and public release are out of scope.
+- Install the debug APK and cold launch in airplane mode.
+- Rotate each way in landscape and verify orientation through Home, preparation, play, and end. Check real safe areas and the spacing of touch targets.
+- Exercise drags, Android Back, background and foreground transitions, reload recovery, and data clearing on the target WebView.
+- Review the illustrations. Vietnamese recordings are absent, so audio playback remains outside verification.

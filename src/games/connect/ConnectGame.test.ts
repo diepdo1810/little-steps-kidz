@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { enableAutoUnmount, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { DEFAULT_SETTINGS, getAssets } from '../../assets/catalog'
-import type { Level } from '../../shared/contracts'
 import ConnectGame from './ConnectGame.vue'
 
 enableAutoUnmount(afterEach)
@@ -24,12 +23,14 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
-function setupGame(level: Level = 1, pool = assets.slice(0, 2)) {
+function setupGame(sample = 0.21, pool: typeof assets = assets.slice(0, 2)) {
+  const random = vi.spyOn(Math, 'random').mockReturnValue(sample)
   const game = mount(ConnectGame, {
     props: {
-      settings: { ...DEFAULT_SETTINGS, level },
+      settings: DEFAULT_SETTINGS,
       assets: pool,
       active: true,
       roundKey: 'first',
@@ -60,7 +61,7 @@ function setupGame(level: Level = 1, pool = assets.slice(0, 2)) {
     notifyResize?.()
   }
 
-  return { game, target, lineCount, setGeometry }
+  return { game, random, target, lineCount, setGeometry }
 }
 
 async function pointer(
@@ -77,15 +78,76 @@ async function pointer(
 }
 
 describe('ConnectGame', () => {
-  it.each([1, 2, 3, 4, 5] as const)('shows the level %i pair count on each side', (level) => {
-    const { game } = setupGame(level, assets.slice())
-    expect(game.findAll('button[data-connect-side="left"]')).toHaveLength(level + 1)
-    expect(game.findAll('button[data-connect-side="right"]')).toHaveLength(level + 1)
-    expect(game.text()).toBe('')
+  it.each([[0, 1], [0.21, 2], [0.41, 3], [0.61, 4], [0.999, 5]])(
+    'shows the sampled %f board with %i pairs',
+    (sample, pairs) => {
+      const { game } = setupGame(sample, assets)
+      expect(game.findAll('button[data-connect-side="left"]')).toHaveLength(pairs)
+      expect(game.findAll('button[data-connect-side="right"]')).toHaveLength(pairs)
+      expect(game.text()).toBe('')
+    },
+  )
+
+  it('samples a fresh pair count only when the round changes', async () => {
+    const { game, random } = setupGame(0, assets)
+    const sourceCount = () => game.findAll('button[data-connect-side="left"]').length
+    expect(sourceCount()).toBe(1)
+
+    random.mockReturnValue(0.999)
+    await game.setProps({ active: false })
+    notifyResize?.()
+    await game.setProps({ active: true })
+    expect(sourceCount()).toBe(1)
+
+    await game.setProps({ roundKey: 'second' })
+    expect(sourceCount()).toBe(5)
+  })
+
+  it('completes only after all five sampled pairs are linked', async () => {
+    const { game, target, lineCount } = setupGame(0.999, assets)
+    for (const { id } of assets.slice(0, 4)) {
+      await target('left', id).trigger('click')
+      await target('right', id).trigger('click')
+      expect(game.emitted('complete')).toBeUndefined()
+    }
+    expect(lineCount()).toBe(4)
+
+    const { id } = assets[4]
+    await target('left', id).trigger('click')
+    await target('right', id).trigger('click')
+    expect(lineCount()).toBe(5)
+    expect(game.emitted('complete')).toEqual([[]])
+  })
+
+  it('pages the original five pairs without completing early or resampling', async () => {
+    const { game, random, target } = setupGame(0.999, assets)
+    const visibleIds = () => game.findAll<HTMLButtonElement>('button[data-connect-side="left"]')
+      .map(button => button.element.dataset.connectId!)
+    const sampled = visibleIds()
+    const sampleCalls = random.mock.calls.length
+    vi.spyOn(game.get('section').element, 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect(0, 0, 456, 288))
+    notifyResize?.()
+    await nextTick()
+
+    expect(visibleIds()).toEqual(sampled.slice(0, 3))
+    for (const id of sampled.slice(0, 3)) {
+      await target('left', id).trigger('click')
+      await target('right', id).trigger('click')
+    }
+    expect(visibleIds()).toEqual(sampled.slice(3))
+    expect(game.emitted('complete')).toBeUndefined()
+    for (const id of sampled.slice(3)) {
+      await target('left', id).trigger('click')
+      await target('right', id).trigger('click')
+    }
+    await target('right', sampled[4]).trigger('click')
+    expect(game.emitted('complete')).toEqual([[]])
+    expect(random.mock.calls.length).toBe(sampleCalls)
   })
 
   it('does not render a board from an insufficient pool', () => {
-    const { game } = setupGame(2)
+    const { game } = setupGame(0.41)
     expect(game.findAll('button')).toHaveLength(0)
     expect(game.emitted('complete')).toBeUndefined()
   })
@@ -116,7 +178,7 @@ describe('ConnectGame', () => {
   })
 
   it('clears a wrong selection and leaves committed lines intact', async () => {
-    const { target, lineCount } = setupGame(2, assets.slice(0, 3))
+    const { target, lineCount } = setupGame(0.41, assets.slice(0, 3))
     await target('left', 'cow').trigger('click')
     await target('right', 'cow').trigger('click')
 

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { MAX_ROUND_ITEMS, sampleRoundSize } from '../../assets/catalog'
 import type { GameProps } from '../../shared/contracts'
-import { connectPair, createBoard } from './engine'
+import { connectPair, createBoard, maxPairsForHeight } from './engine'
 import type { Board } from './engine'
 
 const props = defineProps<GameProps>()
@@ -30,16 +31,32 @@ interface Gesture {
 }
 
 const dragThreshold = 6
+const roomyRowHeight = 80
 const labels: Record<Side, string> = { left: 'Bên trái', right: 'Bên phải' }
 const area = ref<HTMLElement | null>(null)
 const canvas = ref<SVGSVGElement | null>(null)
 const board = shallowRef<Board | null>(null)
+const pageSize = ref(MAX_ROUND_ITEMS)
 const matched = shallowRef<readonly string[]>([])
 const selected = shallowRef<Endpoint | null>(null)
 const gesture = shallowRef<Gesture | null>(null)
 const origin = shallowRef<Point>({ x: 0, y: 0 })
 const anchors = shallowRef<Record<Side, Map<string, Point>>>({ left: new Map(), right: new Map() })
 let observer: ResizeObserver | undefined
+let measured: DOMRect | undefined
+
+const pageStart = computed(() => {
+  if (!board.value) return 0
+  const next = board.value.left.findIndex(({ id }) => !matched.value.includes(id))
+  const index = next === -1 ? board.value.left.length - 1 : next
+  return Math.floor(index / pageSize.value) * pageSize.value
+})
+const visibleBoard = computed(() => {
+  if (!board.value) return null
+  const left = board.value.left.slice(pageStart.value, pageStart.value + pageSize.value)
+  const ids = new Set(left.map(({ id }) => id))
+  return { left, right: board.value.right.filter(({ id }) => ids.has(id)) }
+})
 
 const playable = computed(() => props.active && board.value !== null && matched.value.length < board.value.left.length)
 const lines = computed(() => matched.value.flatMap((id) => {
@@ -84,6 +101,17 @@ function measureAnchors() {
   }
   origin.value = { x: svg.left, y: svg.top }
   anchors.value = next
+}
+
+function measureBoard() {
+  const size = area.value?.getBoundingClientRect()
+  if (size?.width && size.height && (!measured || size.width !== measured.width || size.height !== measured.height ||
+    size.x !== measured.x || size.y !== measured.y)) {
+    clearInteraction()
+    measured = size
+    pageSize.value = Math.max(1, maxPairsForHeight(size.height, MAX_ROUND_ITEMS, roomyRowHeight))
+  }
+  measureAnchors()
 }
 
 function targetAt(point: Point): Endpoint | null {
@@ -200,7 +228,7 @@ watch(() => props.roundKey, () => {
   clearInteraction()
   matched.value = []
   try {
-    board.value = createBoard(props.assets, props.settings.level + 1, Math.random)
+    board.value = createBoard(props.assets, sampleRoundSize(Math.random), Math.random)
   } catch (error) {
     if (!(error instanceof RangeError)) throw error
     board.value = null
@@ -208,21 +236,24 @@ watch(() => props.roundKey, () => {
 }, { immediate: true })
 
 watch(() => props.active, clearInteraction, { flush: 'sync' })
-watch(board, measureAnchors, { flush: 'post' })
+watch(visibleBoard, () => {
+  clearInteraction()
+  measureAnchors()
+}, { flush: 'post' })
 
 onMounted(() => {
-  measureAnchors()
+  measureBoard()
   if (area.value && typeof ResizeObserver !== 'undefined') {
-    observer = new ResizeObserver(measureAnchors)
+    observer = new ResizeObserver(measureBoard)
     observer.observe(area.value)
   }
-  window.addEventListener('resize', measureAnchors)
+  window.addEventListener('resize', measureBoard)
 })
 
 onBeforeUnmount(() => {
   clearInteraction()
   observer?.disconnect()
-  window.removeEventListener('resize', measureAnchors)
+  window.removeEventListener('resize', measureBoard)
 })
 </script>
 
@@ -231,7 +262,7 @@ onBeforeUnmount(() => {
     ref="area"
     class="connect-game"
     aria-label="Nối hình giống nhau"
-    :style="{ '--connect-rows': board?.left.length ?? 0 }"
+    :style="{ '--connect-rows': visibleBoard?.left.length ?? 0 }"
     @pointermove="onPointerMove"
     @pointerup="onPointerUp"
     @pointercancel="onPointerCancel"
@@ -255,10 +286,10 @@ onBeforeUnmount(() => {
         :y2="preview.end.y"
       />
     </svg>
-    <template v-if="board">
+    <template v-if="visibleBoard">
       <div v-for="side in sides" :key="side" class="connect-column" :class="`connect-column--${side}`">
         <button
-          v-for="asset in board[side]"
+          v-for="asset in visibleBoard[side]"
           :key="asset.id"
           class="connect-target"
           type="button"

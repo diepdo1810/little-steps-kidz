@@ -3,20 +3,21 @@ import { enableAutoUnmount, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_SETTINGS, getAssets } from '../../assets/catalog'
-import type { Level } from '../../shared/contracts'
 import ShadowGame from './ShadowGame.vue'
 
 enableAutoUnmount(afterEach)
+afterEach(() => vi.restoreAllMocks())
 
 const assets = getAssets('farm')
 const sourceSelector = 'button[data-shadow-side="source"]'
 const targetSelector = 'button[data-shadow-side="target"]'
 const dragSelector = '[data-shadow-drag]'
 
-function setupGame(level: Level = 3, pool = assets.slice(0, 2)) {
+function setupGame(sample = 0.21, pool: typeof assets = assets.slice(0, 2)) {
+  const random = vi.spyOn(Math, 'random').mockReturnValue(sample)
   const game = mount(ShadowGame, {
     props: {
-      settings: { ...DEFAULT_SETTINGS, game: 'shadow', level },
+      settings: { ...DEFAULT_SETTINGS, game: 'shadow' },
       assets: pool,
       active: true,
       roundKey: 'first',
@@ -33,7 +34,7 @@ function setupGame(level: Level = 3, pool = assets.slice(0, 2)) {
     }
   }
 
-  return { game, source, target, snapped, setGeometry }
+  return { game, random, source, target, snapped, setGeometry }
 }
 
 async function pointer(element: HTMLElement, type: string, x: number, y: number, id = 1) {
@@ -44,23 +45,43 @@ async function pointer(element: HTMLElement, type: string, x: number, y: number,
 }
 
 describe('ShadowGame', () => {
-  it('renders two rows, labeled controls and the same local image on both level 1 tiles', () => {
-    const { game, source, target } = setupGame(1, assets.slice(0, 1))
+  it('renders a one-pair board with a silhouette of the exact source artwork', () => {
+    const { game, source, target } = setupGame(0, assets.slice(0, 1))
     expect(game.findAll(sourceSelector)).toHaveLength(1)
     expect(game.findAll(targetSelector)).toHaveLength(1)
     expect(source('cow').element.parentElement).not.toBe(target('cow').element.parentElement)
     expect(source('cow').attributes('aria-label')).toBe('Hình Bò')
-    expect(target('cow').attributes('aria-label')).toBe('Ô đích ghép Bò')
-    expect(target('cow').get('img').attributes('src')).toBe(source('cow').get('img').attributes('src'))
+    expect(target('cow').attributes('aria-label')).toBe('Bóng Bò')
+    const original = source('cow').get('img').attributes('src')
+    expect(target('cow').find('img').exists()).toBe(false)
+    expect(target('cow').get('.shadow-silhouette').attributes('style')).toContain(`url("${original}")`)
     expect(game.text()).toBe('')
   })
 
-  it('uses the exact source image to mask the level 2 shadow', () => {
-    const { source, target } = setupGame(2, assets.slice(0, 1))
-    const original = source('cow').get('img').attributes('src')
-    expect(target('cow').attributes('aria-label')).toBe('Bóng Bò')
-    expect(target('cow').find('img').exists()).toBe(false)
-    expect(target('cow').get('.shadow-silhouette').attributes('style')).toContain(`url("${original}")`)
+  it('uses the five sampled silhouettes for the full round', async () => {
+    const { game, random, source, target, snapped } = setupGame(0.999, assets)
+    expect(game.findAll(sourceSelector)).toHaveLength(5)
+    expect(game.findAll(`${targetSelector} .shadow-silhouette`)).toHaveLength(5)
+
+    random.mockReturnValue(0)
+    await game.setProps({ active: false })
+    window.dispatchEvent(new Event('resize'))
+    await game.setProps({ active: true })
+    expect(game.findAll(sourceSelector)).toHaveLength(5)
+
+    for (const { id } of assets.slice(0, 4)) {
+      await source(id).trigger('click')
+      await target(id).trigger('click')
+      expect(game.emitted('complete')).toBeUndefined()
+    }
+    const { id } = assets[4]
+    await source(id).trigger('click')
+    await target(id).trigger('click')
+    expect(snapped()).toHaveLength(5)
+    expect(game.emitted('complete')).toEqual([[]])
+
+    await game.setProps({ roundKey: 'second' })
+    expect(game.findAll(sourceSelector)).toHaveLength(1)
   })
 
   it('snaps pointer taps into the target and clears the source slot', async () => {
@@ -97,7 +118,7 @@ describe('ShadowGame', () => {
   })
 
   it('restores a wrong drop without clearing a locked pair', async () => {
-    const { game, source, target, snapped, setGeometry } = setupGame(4, assets.slice(0, 3))
+    const { game, source, target, snapped, setGeometry } = setupGame(0.41, assets.slice(0, 3))
     setGeometry()
     await source('pig').trigger('click')
     await target('pig').trigger('click')
@@ -207,7 +228,7 @@ describe('ShadowGame', () => {
   })
 
   it('emits completion once for each round', async () => {
-    const { game, source, target } = setupGame(2, assets.slice(0, 1))
+    const { game, source, target } = setupGame(0, assets.slice(0, 1))
     const match = async () => {
       await source('cow').trigger('click')
       await target('cow').trigger('click')
@@ -224,7 +245,7 @@ describe('ShadowGame', () => {
   })
 
   it('keeps an invalid round inert when the asset pool is undersized', () => {
-    const { game } = setupGame(5, assets.slice(0, 2))
+    const { game } = setupGame(0.999, assets.slice(0, 2))
     expect(game.findAll('button')).toHaveLength(0)
     expect(game.emitted('complete')).toBeUndefined()
   })

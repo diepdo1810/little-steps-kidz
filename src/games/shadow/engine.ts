@@ -1,16 +1,13 @@
-import { shuffle } from '../../assets/catalog'
-import type { Asset, Level, Rng } from '../../shared/contracts'
+import { sampleRoundSize, shuffle } from '../../assets/catalog'
+import type { Asset, Rng } from '../../shared/contracts'
 
 export interface ShadowBoard {
   sources: Asset[]
   targets: Asset[]
-  useShadow: boolean
 }
 
-const pairsByLevel: Record<Level, number> = { 1: 1, 2: 1, 3: 2, 4: 3, 5: 4 }
-
-export function createShadowBoard(pool: readonly Asset[], level: Level, rng: Rng): ShadowBoard {
-  const pairs = pairsByLevel[level]
+export function createShadowBoard(pool: readonly Asset[], rng: Rng): ShadowBoard {
+  const pairs = sampleRoundSize(rng)
   if (!Array.isArray(pool) || pool.length < pairs) {
     throw new RangeError('Not enough assets for the requested pairs')
   }
@@ -28,7 +25,7 @@ export function createShadowBoard(pool: readonly Asset[], level: Level, rng: Rng
   if (pairs > 1 && targets.every((asset, index) => asset.id === sources[index].id)) {
     targets.push(...targets.splice(0, 1))
   }
-  return { sources, targets, useShadow: level !== 1 }
+  return { sources, targets }
 }
 
 export function matchShadow(

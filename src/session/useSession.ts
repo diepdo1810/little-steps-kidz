@@ -1,19 +1,13 @@
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
-import { Capacitor, registerPlugin } from '@capacitor/core'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { DEFAULT_SETTINGS } from '../assets/catalog'
 import { playCue, stopAudio, type AudioCue } from '../services/audio'
-import { boardInset, localCues, unavailableReason } from '../services/settings'
+import { decodeSettings, localCues, unavailableReason } from '../services/settings'
 import { createStorage, SETTINGS_KEY, SESSION_KEY } from '../services/storage'
 import type { GameId, Settings } from '../shared/contracts'
 import { decodeSession, finishRound, isSettings, startSession, stopSession, tick, type Session } from './sessionManager'
 
-type Screen = 'loading' | 'home' | 'settings' | 'learning' | 'end'
-
-interface LearningOrientationPlugin {
-  setLearning(options: { active: boolean }): Promise<void>
-}
-
-const LearningOrientation = registerPlugin<LearningOrientationPlugin>('LearningOrientation')
+type AdultScreen = 'settings' | 'preferences'
+type Screen = 'loading' | 'home' | AdultScreen | 'learning' | 'end'
 
 function canResume(rawGrant: string | null, writer: unknown, session: Session, now: number) {
   if (!rawGrant || typeof writer !== 'string') return false
@@ -35,20 +29,13 @@ export function useSession() {
   const blocked = ref(false)
   const settingsReady = ref(false)
   const clearing = ref(false)
-  const width = ref(window.innerWidth)
-  const height = ref(window.innerHeight)
-  const safeTop = ref(0)
-  const safeBottom = ref(0)
-  const landscape = computed(() => width.value > height.value)
-  const boardHeight = computed(() => Math.min(width.value, height.value) - boardInset -
-    Math.max(0, safeTop.value - 8) - Math.max(0, safeBottom.value - 8))
+  const landscape = ref(window.innerWidth > window.innerHeight)
   const visible = ref(!document.hidden)
   const roundKey = ref('')
   const feedback = ref(false)
   const interactive = computed(() => screen.value === 'learning' && !!roundKey.value &&
     visible.value && landscape.value && !feedback.value)
 
-  let timer: number | undefined
   let nextRound: number | undefined
   let feedbackSaved = false
   let interacted = false
@@ -57,17 +44,10 @@ export function useSession() {
   let queue = Promise.resolve()
   let writerActions = Promise.resolve()
   let releaseWriter: (() => void) | undefined
-  let safeAreaObserver: ResizeObserver | undefined
   let parked = false
   let writerId = ''
   let reviewingFallback = false
   let activationGeneration = 0
-
-  function readSafeInset(name: '--safe-area-inset-top' | '--safe-area-inset-bottom') {
-    const probe = document.querySelector('.safe-area-probe')
-    const value = Number.parseFloat(probe ? getComputedStyle(probe)[name === '--safe-area-inset-top' ? 'paddingTop' : 'paddingBottom'] : '8')
-    return Number.isFinite(value) ? value : 0
-  }
 
   function randomId() {
     return Array.from(crypto.getRandomValues(new Uint32Array(4)), n => n.toString(16).padStart(8, '0')).join('')
@@ -101,14 +81,13 @@ export function useSession() {
     return writerActions
   }
 
-  function cancelTimers() {
-    window.clearInterval(timer)
+  function cancelNextRound() {
     window.clearTimeout(nextRound)
-    timer = nextRound = undefined
+    nextRound = undefined
   }
 
   function leaveLearning() {
-    cancelTimers()
+    cancelNextRound()
     stopAudio()
     roundKey.value = ''
     feedback.value = false
@@ -119,7 +98,7 @@ export function useSession() {
 
   function storageFailed() {
     blocked.value = true
-    notice.value = 'Không thể lưu dữ liệu trên thiết bị. Hãy kiểm tra bộ nhớ rồi xóa dữ liệu tại đây để bắt đầu lại.'
+    notice.value = 'Không thể lưu dữ liệu trên thiết bị. Hãy kiểm tra bộ nhớ rồi xóa dữ liệu trong Cài đặt người lớn để bắt đầu lại.'
     // A settings save can fail while Start is queued behind it. There is no
     // session to end yet, so return the adult to the form with its warning.
     if (screen.value === 'loading' && session.value === null) {
@@ -221,22 +200,8 @@ export function useSession() {
   }
 
   function checkSize() {
-    width.value = window.innerWidth
-    height.value = window.innerHeight
-    safeTop.value = readSafeInset('--safe-area-inset-top')
-    safeBottom.value = readSafeInset('--safe-area-inset-bottom')
-    if (!checkClock() || !landscape.value) return
-    const reason = unavailableReason(session.value!.settings, boardHeight.value)
-    if (reason) {
-      notice.value = reason
-      stop()
-    }
-  }
-
-  function startTicker() {
-    if (timer === undefined && visible.value && screen.value === 'learning') {
-      timer = window.setInterval(checkClock, 200)
-    }
+    landscape.value = window.innerWidth > window.innerHeight
+    checkClock()
   }
 
   function onVisibility() {
@@ -245,10 +210,9 @@ export function useSession() {
     if (!checkClock()) return
     void persist(session.value!)
     if (visible.value) {
-      startTicker()
       scheduleNext()
     } else {
-      cancelTimers()
+      cancelNextRound()
     }
   }
 
@@ -276,62 +240,79 @@ export function useSession() {
     void withWriter(restore)
   }
 
-  function updateSettings(value: Settings) {
-    if (!settingsReady.value || blocked.value || clearing.value || screen.value !== 'settings' || !isSettings(value)) return
-    settings.value = { ...value }
+  function isAdultScreen() {
+    return screen.value === 'settings' || screen.value === 'preferences'
+  }
+
+  function updateSettings(changes: Partial<Settings>) {
+    const value = { ...settings.value, ...changes }
+    if (!settingsReady.value || blocked.value || clearing.value || !isAdultScreen() || !isSettings(value)) return
+    settings.value = value
     reviewingFallback = false
     notice.value = ''
-    const encoded = JSON.stringify(value)
-    void withWriter(() => enqueue(() => storage.set(SETTINGS_KEY, encoded)))
+    void withWriter(async () => {
+      if (blocked.value) return
+      await enqueue(async () => {
+        // The two adult views can stay open in separate tabs. Merge only
+        // the edited fields so hidden preferences are never overwritten.
+        const saved = await readSettings()
+        await storage.set(SETTINGS_KEY, JSON.stringify(saved ? { ...saved, ...changes } : value))
+      })
+    })
   }
 
   async function readSettings(): Promise<Settings | null> {
     const rawSettings = await storage.get(SETTINGS_KEY)
     if (rawSettings === null) return { ...DEFAULT_SETTINGS }
-    let decoded: unknown
-    try { decoded = JSON.parse(rawSettings) } catch { return null }
-    return isSettings(decoded) ? decoded : null
+    const decoded = decodeSettings(rawSettings)
+    if (decoded?.migrated) await storage.set(SETTINGS_KEY, JSON.stringify(decoded.settings))
+    return decoded?.settings ?? null
   }
 
-  function reviewFallback(game = DEFAULT_SETTINGS.game) {
+  function reviewFallback(game: GameId, target: AdultScreen) {
     settings.value = { ...DEFAULT_SETTINGS, game }
     reviewingFallback = true
-    notice.value = 'Cài đặt đã lưu không hợp lệ. Hãy kiểm tra các giá trị mặc định trước khi bắt đầu.'
-    screen.value = 'settings'
+    notice.value = 'Cài đặt đã lưu không hợp lệ. Hãy kiểm tra các giá trị mặc định.'
+    screen.value = target
   }
 
-  function openSettings(game?: GameId) {
-    if (!['home', 'end'].includes(screen.value)) return
+  function openAdult(target: AdultScreen, game?: GameId) {
     stopAudio()
-    // Adult recovery must stay visible even while another tab owns the
-    // session writer. Start remains disabled until this callback reloads
-    // durable settings under the lock.
-    screen.value = 'settings'
+    // Keep recovery visible while another tab owns the writer. Editable
+    // fields wait for the durable settings read under the same lock.
+    screen.value = target
     settingsReady.value = false
+    const expectedEntry = ++activationGeneration
+    if (game) settings.value = { ...settings.value, game }
     if (!blocked.value) notice.value = 'Đang đồng bộ cài đặt trên thiết bị.'
     void withWriter(async () => {
-      // A failed session write still needs to expose the adult recovery UI
-      // and its warning; do not attempt another storage read first.
-      if (blocked.value) {
-        screen.value = 'settings'
-        return
-      }
+      if (blocked.value || expectedEntry !== activationGeneration) return
       const savedSettings = await readSettings()
-      if (!alive || parked || blocked.value) return
+      if (!alive || parked || blocked.value || expectedEntry !== activationGeneration) return
       settingsReady.value = true
       if (!savedSettings) {
-        reviewFallback(game)
+        reviewFallback(game ?? DEFAULT_SETTINGS.game, target)
         return
       }
       settings.value = savedSettings
       reviewingFallback = false
       notice.value = ''
-      if (game && game !== settings.value.game) updateSettings({ ...settings.value, game })
+      if (game && game !== savedSettings.game) updateSettings({ game })
     })
   }
 
+  function openSettings(game?: GameId) {
+    if (screen.value === 'home' || screen.value === 'end') {
+      openAdult('settings', game ?? session.value?.settings.game)
+    }
+  }
+
+  function openPreferences() {
+    if (screen.value === 'home') openAdult('preferences')
+  }
+
   async function clearData() {
-    if (screen.value !== 'settings' || clearing.value) return
+    if (screen.value !== 'preferences' || clearing.value) return
     clearing.value = true
     let ok = false
     await withWriter(async () => {
@@ -363,14 +344,13 @@ export function useSession() {
     screen.value = 'learning'
     checkSize()
     if (!checkClock()) return
-    startTicker()
     roundKey.value = value.id + '/' + value.completedRounds
     if (fresh) cue(value.settings.game)
   }
 
   function start() {
     if (screen.value !== 'settings' || !settingsReady.value || blocked.value || clearing.value || !isSettings(settings.value)) return
-    const reason = unavailableReason(settings.value, boardHeight.value)
+    const reason = unavailableReason(settings.value)
     if (reason) {
       notice.value = reason
       return
@@ -386,23 +366,24 @@ export function useSession() {
       const savedSettings = await readSettings()
       if (!alive || parked || blocked.value || clearing.value || expectedStart !== activationGeneration || screen.value !== 'loading') return
       if (!savedSettings && !reviewingFallback) {
-        reviewFallback()
+        reviewFallback(settings.value.game, 'settings')
         return
       }
-      if (savedSettings && JSON.stringify(savedSettings) !== JSON.stringify(settings.value)) {
-        settings.value = savedSettings
+      const refreshed = savedSettings && { ...savedSettings, game: settings.value.game }
+      if (refreshed && JSON.stringify(refreshed) !== JSON.stringify(settings.value)) {
+        settings.value = refreshed
         reviewingFallback = false
         notice.value = 'Cài đặt đã thay đổi ở cửa sổ khác. Hãy kiểm tra lại trước khi bắt đầu.'
         screen.value = 'settings'
         return
       }
-      const reasonAfterSave = unavailableReason(settings.value, boardHeight.value)
+      const reasonAfterSave = unavailableReason(settings.value)
       if (reasonAfterSave) {
         notice.value = reasonAfterSave
         screen.value = 'settings'
         return
       }
-      if (!savedSettings) {
+      if (!savedSettings || savedSettings.game !== settings.value.game) {
         const approved = JSON.stringify(settings.value)
         if (!await enqueue(() => storage.set(SETTINGS_KEY, approved)) || !alive || parked ||
           expectedStart !== activationGeneration || screen.value !== 'loading') return
@@ -464,11 +445,6 @@ export function useSession() {
     window.addEventListener('pagehide', onPageHide)
     window.addEventListener('focus', checkClock)
     window.addEventListener('resize', checkSize)
-    const probe = document.querySelector('.safe-area-probe')
-    if (probe && 'ResizeObserver' in window) {
-      safeAreaObserver = new ResizeObserver(checkSize)
-      safeAreaObserver.observe(probe)
-    }
     checkSize()
     void withWriter(restore)
   })
@@ -481,7 +457,6 @@ export function useSession() {
     window.removeEventListener('pagehide', onPageHide)
     window.removeEventListener('focus', checkClock)
     window.removeEventListener('resize', checkSize)
-    safeAreaObserver?.disconnect()
     leaveLearning()
   })
 
@@ -492,14 +467,16 @@ export function useSession() {
     }
   }
   function home() {
-    if (screen.value === 'settings') screen.value = 'home'
+    if (!isAdultScreen() || clearing.value) return
+    activationGeneration++
+    screen.value = 'home'
   }
 
   function onAndroidBack(event: Event) {
     if (screen.value === 'home') return
     event.preventDefault()
-    if (screen.value === 'settings') {
-      screen.value = 'home'
+    if (isAdultScreen()) {
+      home()
     } else if (screen.value === 'learning') {
       stop()
     } else if (screen.value === 'end') {
@@ -511,10 +488,6 @@ export function useSession() {
     }
   }
 
-  watch(() => screen.value === 'learning', active => {
-    if (Capacitor.isNativePlatform()) void LearningOrientation.setLearning({ active }).catch(() => {})
-  }, { immediate: true })
-
-  return { screen, settings, session, notice, blocked, clearing, landscape, boardHeight, roundKey, interactive,
-    feedback, settingsReady, start, stop, complete, allowInput, playInputCue, openSettings, updateSettings, clearData, home }
+  return { screen, settings, session, notice, blocked, clearing, landscape, roundKey, interactive,
+    feedback, settingsReady, start, stop, complete, allowInput, playInputCue, openSettings, openPreferences, updateSettings, clearData, home }
 }

@@ -27,11 +27,5 @@ function guard(event: Event) {
       @pointerup.capture="guard" @click.capture="guard" @keydown.capture="guard" @keyup.capture="guard">
       <slot/>
     </div>
-    <div v-if="!landscape" class="orientation-prompt">
-      <svg role="img" aria-label="Xoay ngang thiết bị" viewBox="0 0 100 100">
-        <rect x="18" y="32" width="64" height="37" rx="7" transform="rotate(-25 50 50)"/>
-        <path d="M18 27a37 37 0 0 1 55-7m-3-10 4 11-12 3M82 73a37 37 0 0 1-55 7m3 10-4-11 12-3"/>
-      </svg>
-    </div>
   </div>
 </template>

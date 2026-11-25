@@ -1,60 +1,55 @@
 import { expect, it } from 'vitest'
+import { decodeSettings, roundLimits } from '../services/settings'
 import type { Settings } from '../shared/contracts'
-import {
-  decodeSession,
-  finishRound,
-  startSession,
-  stopSession,
-  tick,
-  type Session,
-} from './sessionManager'
+import { decodeSession, finishRound, startSession, stopSession, tick, type Session } from './sessionManager'
 
 const settings: Settings = {
   game: 'counting',
   theme: 'fruit',
-  level: 2,
-  minutes: 5,
-  roundLimit: 3,
+  roundLimit: 5,
   audio: false,
   reducedMotion: true,
 }
 
 const active: Session = {
+  version: 2,
   id: 'session-1',
   settings,
   startedAt: 1_000,
-  deadlineAt: 301_000,
   lastSeenAt: 1_000,
   completedRounds: 0,
   status: 'active',
 }
 
-it('ends_at_exact_deadline', () => {
-  const session = startSession('session-1', settings, 1_000)
+const legacySettings = {
+  ...settings,
+  level: 2,
+  minutes: 5,
+  roundLimit: 3,
+  audio: true,
+  reducedMotion: false,
+}
 
-  expect(session).toEqual(active)
-  expect(tick(session, 300_999)).toMatchObject({ status: 'active', lastSeenAt: 300_999 })
-  expect(tick(session, 301_000)).toMatchObject({ status: 'ended', reason: 'time' })
+it('starts a versioned session with rounds-only settings', () => {
+  expect(startSession('session-1', settings, 1_000)).toEqual(active)
 })
 
-it('round_limit_three', () => {
-  const first = finishRound(active, 2_000)
-  const second = finishRound(first, 3_000)
-  const third = finishRound(second, 4_000)
-
-  expect(first).toMatchObject({ completedRounds: 1, status: 'active' })
-  expect(second).toMatchObject({ completedRounds: 2, status: 'active' })
-  expect(third).toMatchObject({ completedRounds: 3, status: 'ended', reason: 'rounds' })
-  expect(active.completedRounds).toBe(0)
+it('offers and accepts round choices from 5 through 30 in steps of 5', () => {
+  expect(roundLimits).toEqual([5, 10, 15, 20, 25, 30])
+  for (const roundLimit of [5, 10, 15, 20, 25, 30]) {
+    expect(startSession('session-1', { ...settings, roundLimit }, 1_000).settings.roundLimit).toBe(roundLimit)
+  }
 })
 
-it('expiry_wins_over_round', () => {
-  const session = { ...active, completedRounds: 2 }
+it('ends on the fifth completed round even with long gaps between rounds', () => {
+  let session = startSession('session-1', settings, 1_000)
+  for (let completed = 1; completed < 5; completed++) {
+    session = finishRound(session, completed * 1_000_000)
+    expect(session).toMatchObject({ completedRounds: completed, status: 'active' })
+  }
 
-  expect(finishRound(session, 301_000)).toMatchObject({
-    completedRounds: 2,
-    status: 'ended',
-    reason: 'time',
+  expect(finishRound(session, 5_000_000)).toMatchObject({
+    completedRounds: 5, status: 'ended', reason: 'rounds',
   })
 })
 
@@ -68,20 +63,13 @@ it('ended_is_idempotent', () => {
   expect(decodeSession(JSON.stringify(stopped), 301_000)).toEqual(stopped)
 })
 
-it('reload_retains_deadline', () => {
+it('reload retains the completed round count regardless of elapsed time', () => {
   const stored = JSON.stringify({ ...active, completedRounds: 1, lastSeenAt: 2_000 })
 
-  expect(decodeSession(stored, 200_000)).toEqual({
+  expect(decodeSession(stored, 5_000_000)).toEqual({
     ...active,
     completedRounds: 1,
-    lastSeenAt: 200_000,
-  })
-  expect(decodeSession(stored, 301_000)).toMatchObject({
-    startedAt: 1_000,
-    deadlineAt: 301_000,
-    completedRounds: 1,
-    status: 'ended',
-    reason: 'time',
+    lastSeenAt: 5_000_000,
   })
 })
 
@@ -99,14 +87,41 @@ it('corrupt_json_is_rejected', () => {
   expect(decodeSession(null, 2_000)).toBeNull()
 })
 
+it.each([
+  [{ ...legacySettings }, 5],
+  [{ ...legacySettings, roundLimit: 6 }, 10],
+])('migrates recognized legacy preferences to a round choice', (legacy, roundLimit) => {
+  expect(decodeSettings(JSON.stringify(legacy))).toEqual({
+    settings: { game: 'counting', theme: 'fruit', roundLimit, audio: true, reducedMotion: false },
+    migrated: true,
+  })
+})
+
+it('accepts current settings and rejects corrupt or partially legacy settings', () => {
+  expect(decodeSettings(JSON.stringify(settings))).toEqual({ settings, migrated: false })
+  expect(decodeSettings('{"game":')).toBeNull()
+  expect(decodeSettings(JSON.stringify({ ...legacySettings, level: 0 }))).toBeNull()
+  expect(decodeSettings(JSON.stringify({ ...legacySettings, minutes: 6 }))).toBeNull()
+  expect(decodeSettings(JSON.stringify({ ...legacySettings, theme: 'unknown' }))).toBeNull()
+  expect(decodeSettings(JSON.stringify({ ...settings, minutes: 5 }))).toBeNull()
+})
+
+it('rejects legacy timed sessions even if their former deadline has not passed', () => {
+  const { version: _version, ...unversioned } = active
+  const legacy = { ...unversioned, settings: legacySettings, deadlineAt: 301_000 }
+
+  expect(decodeSession(JSON.stringify(legacy), 2_000)).toBeNull()
+})
+
 it('invalid_settings_rejected', () => {
   const invalidSettings = [
     { game: 'unknown' },
     { theme: 'unknown' },
-    { level: 0 },
-    { minutes: 6 },
+    { level: 2 },
+    { minutes: 5 },
     { roundLimit: 0 },
     { roundLimit: 11 },
+    { roundLimit: 35 },
     { roundLimit: 2.5 },
     { audio: 'false' },
     { reducedMotion: null },
@@ -123,33 +138,34 @@ it('snapshots_settings_at_start', () => {
   const editable = { ...settings }
   const session = startSession('session-1', editable, 1_000)
 
-  editable.minutes = 10
-  editable.roundLimit = 1
+  editable.roundLimit = 10
   editable.theme = 'school'
 
   expect(session.settings).toEqual(settings)
-  expect(finishRound(session, 2_000)).toMatchObject({ status: 'active', deadlineAt: 301_000 })
+  expect(finishRound(session, 2_000)).toMatchObject({ status: 'active', completedRounds: 1 })
 })
 
 it('rejects_non_finite_timestamps', () => {
   expect(() => startSession('session-1', settings, Number.POSITIVE_INFINITY)).toThrow()
   expect(tick(active, Number.NaN)).toMatchObject({ status: 'ended', reason: 'invalid' })
-  const stored = JSON.stringify(active).replace('"deadlineAt":301000', '"deadlineAt":1e309')
+  const stored = JSON.stringify(active).replace('"startedAt":1000', '"startedAt":1e309')
   expect(decodeSession(stored, 2_000)).toBeNull()
 })
 
 it.each([
-  { deadlineAt: 601_000 },
+  { version: undefined },
+  { version: 3 },
+  { deadlineAt: 301_000 },
   { lastSeenAt: 999 },
-  { lastSeenAt: 301_000 },
   { completedRounds: -1 },
   { completedRounds: 1.5 },
-  { completedRounds: 3 },
+  { completedRounds: 5 },
   { status: 'active', reason: 'stopped' },
   { status: 'ended' },
   { status: 'ended', reason: 'unknown' },
-  { status: 'ended', reason: 'rounds', completedRounds: 2 },
-  { status: 'ended', reason: 'time', lastSeenAt: 300_999 },
-])('rejects_inconsistent_session $deadlineAt $lastSeenAt $completedRounds $status $reason', (overrides) => {
+  { status: 'ended', reason: 'rounds', completedRounds: 4 },
+  { status: 'ended', reason: 'stopped', completedRounds: 5 },
+  { status: 'ended', reason: 'time', lastSeenAt: 301_000 },
+])('rejects inconsistent session overrides %j', (overrides) => {
   expect(decodeSession(JSON.stringify({ ...active, ...overrides }), 2_000)).toBeNull()
 })

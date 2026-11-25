@@ -60,13 +60,11 @@ describe('shuffle', () => {
   })
 })
 
-it('default_settings_are_finite_and_quiet', () => {
+it('defaults to five rounds with audio off', () => {
   expect(DEFAULT_SETTINGS).toEqual({
     game: 'connect',
     theme: 'farm',
-    level: 1,
-    minutes: 5,
-    roundLimit: 3,
+    roundLimit: 5,
     audio: false,
     reducedMotion: true,
   })

@@ -1,6 +1,6 @@
-import { getAssets } from '../assets/catalog'
-import { maxPairsForHeight } from '../games/connect/engine'
-import type { GameId, Level, Settings, ThemeId } from '../shared/contracts'
+import { getAssets, MAX_ROUND_ITEMS } from '../assets/catalog'
+import { hasSettingsPreferences, isSettings } from '../shared/contracts'
+import type { GameId, Settings, ThemeId } from '../shared/contracts'
 
 export const gameNames: Record<GameId, string> = {
   connect: 'Nối hình giống nhau',
@@ -11,31 +11,31 @@ export const themeNames: Record<ThemeId, string> = {
   farm: 'Động vật nuôi', fruit: 'Trái cây', sea: 'Sinh vật biển',
   vegetable: 'Rau củ', school: 'Đồ dùng học tập',
 }
-export const levels: readonly Level[] = [1, 2, 3, 4, 5]
-export const minutes = [5, 10, 15] as const
-export const roundLimits = Array.from({ length: 10 }, (_, i) => i + 1)
+export { roundLimits } from '../shared/contracts'
 
-// GameLayout spends 48px on controls, 8px on its gap, and 8px on each edge.
-// Safe-area space beyond those minimum edge paddings is measured at runtime.
-export const boardInset = 72
-
-export function unavailableReason(settings: Settings, boardHeight: number): string {
-  const count = getAssets(settings.theme).length
-  const { game, level } = settings
-  const pairs = game === 'connect' ? level + 1 : Math.max(1, level - 1)
-  if (count < (game === 'counting' ? 1 : pairs)) {
-    return 'Chủ đề này chưa có đủ hình cho mức đã chọn.'
-  }
-  if (game === 'connect' && pairs > maxPairsForHeight(boardHeight, count)) {
-    return 'Chiều cao màn hình chưa đủ cho mức này. Hãy chọn mức thấp hơn hoặc dùng màn hình lớn hơn.'
+export function unavailableReason(settings: Settings): string {
+  const required = settings.game === 'counting' ? 1 : MAX_ROUND_ITEMS
+  if (getAssets(settings.theme).length < required) {
+    return 'Chủ đề này chưa có đủ hình để chơi.'
   }
   return ''
 }
 
-export function levelLabel(game: GameId, level: Level): string {
-  if (game === 'counting') return `Mức ${level} · Đếm đến ${[2, 3, 5, 5, 10][level - 1]}`
-  const pairs = game === 'connect' ? level + 1 : Math.max(1, level - 1)
-  return `Mức ${level} · ${pairs} cặp${game === 'shadow' && level === 1 ? ' hình màu' : ''}`
+export function decodeSettings(raw: string): { settings: Settings; migrated: boolean } | null {
+  let value: unknown
+  try { value = JSON.parse(raw) } catch { return null }
+  if (isSettings(value)) return { settings: value, migrated: false }
+  if (!hasSettingsPreferences(value) || Object.keys(value).length !== 7) return null
+
+  const { game, theme, level, minutes, roundLimit, audio, reducedMotion } = value
+  if (typeof level !== 'number' || !Number.isInteger(level) || level < 1 || level > 5 ||
+    (minutes !== 5 && minutes !== 10 && minutes !== 15) ||
+    typeof roundLimit !== 'number' || !Number.isInteger(roundLimit) || roundLimit < 1 || roundLimit > 10) return null
+
+  return {
+    settings: { game, theme, roundLimit: roundLimit <= 5 ? 5 : 10, audio, reducedMotion },
+    migrated: true,
+  }
 }
 
 // Vite enumerates real local recordings for this build. Missing cues stay silent.

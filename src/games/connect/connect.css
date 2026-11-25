@@ -3,10 +3,9 @@
   display: grid;
   grid-template-columns: minmax(48px, 1fr) minmax(48px, 1fr);
   grid-template-rows: minmax(0, 1fr);
-  column-gap: clamp(48px, 24vw, 352px);
-  inline-size: min(100%, 68rem);
+  column-gap: clamp(72px, 28vw, 390px);
+  inline-size: min(100%, 73rem);
   block-size: 100%;
-  min-block-size: max(0px, calc(var(--connect-rows) * 52px - 4px));
   margin-inline: auto;
   user-select: none;
 }
@@ -14,7 +13,7 @@
 .connect-column {
   display: grid;
   grid-template-rows: repeat(var(--connect-rows), minmax(48px, 1fr));
-  gap: 4px;
+  gap: var(--tile-gap, 16px);
 }
 
 .connect-target {
@@ -22,12 +21,12 @@
   display: grid;
   place-items: center;
   align-self: center;
-  inline-size: min(100%, 12rem);
+  inline-size: min(100%, 14rem);
   block-size: 100%;
   min-inline-size: 48px;
   min-block-size: 48px;
-  max-block-size: 8rem;
-  padding: 2px 16px;
+  max-block-size: 10rem;
+  padding: 6px 18px;
   border: 1px solid #d9e3d9;
   border-radius: 13px;
   background: var(--color-surface, #fffdf8);

@@ -2,6 +2,8 @@
 
 Ứng dụng học tập offline-first cho trẻ, gồm ba trò chơi đếm, ghép bóng và nối hình giống nhau. Ứng dụng không có tài khoản, backend, quảng cáo, theo dõi hay nội dung tải từ bên ngoài. Audio tiếng Việt đang tắt vì repo chưa có bản thu được cấp phép.
 
+Chọn trò ở trang chủ, chọn chủ đề và số lượt rồi bấm **Bắt đầu**. Mặc định là 5 lượt, có thể chọn 5, 10, 15, 20, 25 hoặc 30 lượt. Mỗi lượt có ngẫu nhiên 1–5 đồ vật hoặc cặp hình. Phiên kết thúc khi đủ lượt hoặc khi bấm nút dừng. Khi thiếu chiều cao, Nối hình tự chuyển sang nhóm cặp kế tiếp trong cùng lượt. Vào **Cài đặt người lớn** từ trang chủ để chỉnh âm thanh, giảm chuyển động hoặc xóa dữ liệu.
+
 ## Chạy web
 
 Yêu cầu Node.js `^22.22.2 || ^24.15.0 || >=26.0.0` và pnpm `11.25.0`.
@@ -36,10 +38,10 @@ cd android
 
 APK đầu ra: `android/app/build/outputs/apk/debug/app-debug.apk`. Cài lên thiết bị đã kết nối bằng `adb install -r app/build/outputs/apk/debug/app-debug.apk`. App ID tạm thời cho bản local là `com.littlesteps.learning`; đổi trước khi phát hành công khai.
 
-Android đổi sang landscape khi có màn hình trò chơi và trả về hướng cảm biến mặc định ở màn hình người lớn. Nút Back trong phiên dừng phiên hiện tại; ở màn hình người lớn nó quay lại trang trước. App không tự tạo phiên mới. Không cần quyền mạng hoặc quyền runtime cho MVP.
+Android 1.1 mở theo hướng ngang ngay từ lúc khởi động và hỗ trợ hai chiều ngang. Trên web, biểu tượng xoay máy hiện khi màn hình dọc. Nút dừng vẫn dùng được khi đang chơi. Nút Back của Android dừng phiên đang chơi hoặc quay về trang chủ từ màn hình người lớn và màn hình kết thúc. App không tự tạo phiên mới. Không cần quyền mạng hoặc quyền runtime cho MVP.
 
 ## CI build APK
 
-GitHub Actions workflow `.github/workflows/android-apk.yml` chạy khi có push, pull request vào `main`, hoặc chạy thủ công. Workflow chạy unit/E2E tests, typecheck, sync Capacitor và build APK debug. Sau khi thành công, tải APK ở mục **Actions → workflow run → Artifacts**; artifact được giữ trong 14 ngày. Không cần signing secret vì đây là APK debug, chưa dùng để phát hành lên cửa hàng.
+GitHub Actions workflow `.github/workflows/android-apk.yml` chạy khi có push, pull request vào `main`, hoặc chạy thủ công. Workflow chạy unit/E2E tests, typecheck, sync Capacitor và build APK debug. Sau khi thành công, tải APK ở mục **Actions → workflow run → Artifacts**; artifact được giữ trong 14 ngày. Artifact `browser-checks-*` chứa ảnh chụp giao diện ngang và kết quả kiểm thử trình duyệt. Không cần signing secret vì đây là APK debug, chưa dùng để phát hành lên cửa hàng.
 
 Xem trạng thái kiểm thử và blocker của môi trường build hiện tại tại [docs/verification.md](docs/verification.md).

@@ -14,7 +14,7 @@ function setupGame(pool = assets) {
   const random = vi.spyOn(Math, 'random').mockReturnValue(0.999)
   const game = mount(CountingGame, {
     props: {
-      settings: { ...DEFAULT_SETTINGS, game: 'counting', level: 5 },
+      settings: { ...DEFAULT_SETTINGS, game: 'counting' },
       assets: pool,
       active: true,
       roundKey: 'first',
@@ -29,11 +29,11 @@ function setupGame(pool = assets) {
 describe('CountingGame', () => {
   it('renders identical local artwork and only numeric answer text', () => {
     const { game, objects, answers } = setupGame()
-    expect(objects()).toHaveLength(10)
+    expect(objects()).toHaveLength(5)
     expect(answers()).toHaveLength(3)
-    expect(game.findAll('img').map((img) => img.attributes('src'))).toEqual(Array(10).fill(assets[0].image))
-    expect(objects().map((button) => button.attributes('aria-label'))).toContain('Hình Bò 10')
-    expect(answers().every((answer) => /^(?:[1-9]|10)$/.test(answer.text()))).toBe(true)
+    expect(game.findAll('img').map((img) => img.attributes('src'))).toEqual(Array(5).fill(assets[0].image))
+    expect(objects().map((button) => button.attributes('aria-label'))).toContain('Hình Bò 5')
+    expect(answers().every((answer) => /^[1-5]$/.test(answer.text()))).toBe(true)
     expect(game.text().replace(/\s/g, '')).toBe(answers().map((answer) => answer.text()).join(''))
   })
 
@@ -52,9 +52,9 @@ describe('CountingGame', () => {
     const { game, objects, answers } = setupGame()
     await objects()[0].trigger('click')
     const initialChoices = answers().map((button) => button.text())
-    const wrong = answers().find((button) => button.text() !== '10')!
+    const wrong = answers().find((button) => button.text() !== '5')!
     await wrong.trigger('click')
-    expect(objects()).toHaveLength(10)
+    expect(objects()).toHaveLength(5)
     expect(objects()[0].attributes('aria-pressed')).toBe('true')
     expect(answers().map((button) => button.text())).toEqual(initialChoices)
     expect(answers().every(({ element }) => !element.disabled)).toBe(true)

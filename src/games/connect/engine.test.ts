@@ -10,16 +10,22 @@ const ids = (assets: typeof pool) => assets.map(({ id }) => id)
 
 describe('createBoard', () => {
   it('board_has_unique_equal_sets', () => {
-    const selected = createBoard(pool, 4, () => 0)
+    const selected = createBoard(pool, 5, () => 0)
     const leftIds = ids(selected.left)
     const rightIds = ids(selected.right)
 
-    expect(leftIds).toHaveLength(4)
-    expect(new Set(leftIds).size).toBe(4)
-    expect(rightIds).toHaveLength(4)
+    expect(leftIds).toHaveLength(5)
+    expect(new Set(leftIds).size).toBe(5)
+    expect(rightIds).toHaveLength(5)
     expect(new Set(rightIds)).toEqual(new Set(leftIds))
     expect(rightIds).not.toEqual(leftIds)
     expect(ids(pool)).toEqual(['cow', 'pig', 'rooster', 'goat', 'duck', 'dog'])
+  })
+
+  it('connects a board with only one pair', () => {
+    const single = createBoard([cow], 1, identityRng)
+    expect(single).toEqual({ left: [cow], right: [cow] })
+    expect(connectPair([], 'cow', 'cow', single)).toEqual(['cow'])
   })
 
   it('identical_shuffle_rotates', () => {
@@ -33,7 +39,7 @@ describe('createBoard', () => {
     expect(() => createBoard([], 2, identityRng)).toThrow(RangeError)
   })
 
-  it.each([0, 1, 2.5, 7, NaN])('rejects unsupported pair count %s', (pairs) => {
+  it.each([0, 2.5, 6, 7, NaN])('rejects unsupported pair count %s', (pairs) => {
     expect(() => createBoard(pool, pairs, identityRng)).toThrow(RangeError)
   })
 
@@ -74,12 +80,11 @@ describe('connectPair', () => {
 it('height_limits_rows', () => {
   expect(maxPairsForHeight(47, 6)).toBe(0)
   expect(maxPairsForHeight(48, 6)).toBe(1)
-  expect(maxPairsForHeight(99, 6)).toBe(1)
-  expect(maxPairsForHeight(100, 6)).toBe(2)
-  expect(maxPairsForHeight(104, 6)).toBe(2)
-  expect(maxPairsForHeight(307, 6)).toBe(5)
-  expect(maxPairsForHeight(308, 6)).toBe(6)
-  expect(maxPairsForHeight(1000, 12)).toBe(6)
+  expect(maxPairsForHeight(111, 6)).toBe(1)
+  expect(maxPairsForHeight(112, 6)).toBe(2)
+  expect(maxPairsForHeight(303, 6)).toBe(4)
+  expect(maxPairsForHeight(304, 6)).toBe(5)
+  expect(maxPairsForHeight(1000, 12)).toBe(5)
   expect(maxPairsForHeight(1000, 3)).toBe(3)
   expect(maxPairsForHeight(-30, 6)).toBe(0)
   expect(maxPairsForHeight(308, 0)).toBe(0)

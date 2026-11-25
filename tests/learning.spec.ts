@@ -9,14 +9,26 @@ const stop = (page: Page) => page.getByRole('button', { name: 'Dừng phiên' })
 const end = (page: Page) => page.getByRole('region', { name: 'Đã kết thúc phiên' })
 const start = (page: Page) => page.getByRole('button', { name: 'Bắt đầu' })
 const adult = (page: Page) => page.getByRole('button', { name: 'Cài đặt người lớn' })
+const home = (page: Page) => page.getByRole('button', { name: 'Về trang chủ' })
+const theme = (page: Page) => page.getByRole('combobox', { name: 'Chủ đề', exact: true })
+const rounds = (page: Page) => page.getByRole('combobox', { name: 'Số lượt tối đa', exact: true })
+const rotate = (page: Page) => page.getByRole('img', { name: 'Xoay ngang thiết bị' })
+async function openPreferences(page: Page) {
+  if (await end(page).isVisible()) {
+    await adult(page).click()
+    await home(page).click()
+  }
+  await adult(page).click()
+}
+async function fixSample(page: Page, sample: number) {
+  await page.addInitScript(value => { Math.random = () => value }, sample)
+}
 async function openSettings(page: Page, game: keyof typeof games) {
   if (page.url() === 'about:blank') await page.goto('/')
   await page.getByRole('button', { name: games[game], exact: true }).click()
 }
-async function play(page: Page, game: keyof typeof games = 'connect', level = 1, rounds = 3) {
+async function play(page: Page, game: keyof typeof games = 'connect') {
   await openSettings(page, game)
-  await page.getByRole('combobox', { name: 'Mức độ', exact: true }).selectOption(String(level))
-  await page.getByRole('combobox', { name: 'Số lượt tối đa', exact: true }).selectOption(String(rounds))
   await start(page).click()
   await expect(stop(page)).toBeVisible()
 }
@@ -53,18 +65,18 @@ async function screenshot(page: Page, name: string) {
 }
 
 test('connect_two_pairs_tap_and_drag', async ({ page }) => {
-  await play(page, 'connect', 1, 1)
-  await screenshot(page, 'connect-landscape')
+  await fixSample(page, 0.25)
+  await play(page, 'connect')
   const [a, b] = await connectIds(page)
   await connect(page, 'right', a).click()
   await connect(page, 'left', a).click()
   await expect(page.locator('.connect-lines line')).toHaveCount(1)
   await drag(page, connect(page, 'left', b), connect(page, 'right', b))
-  await expect(end(page)).toBeVisible()
-  expect((await saved(page))?.reason).toBe('rounds')
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1 })
 })
 
 test('connect_wrong_pair_cancel_resize', async ({ page }) => {
+  await fixSample(page, 0.25)
   await play(page)
   const [a, b] = await connectIds(page)
   await drag(page, connect(page, 'left', a), connect(page, 'right', b))
@@ -83,43 +95,76 @@ test('connect_wrong_pair_cancel_resize', async ({ page }) => {
   expect((await saved(page))?.completedRounds).toBe(0)
 })
 
-test('connect_small_height_disables_six_pairs', async ({ page }) => {
-  await page.setViewportSize({ width: 900, height: 450 })
-  await openSettings(page, 'connect')
-  const level = page.getByRole('combobox', { name: 'Mức độ', exact: true })
-  await level.selectOption('5')
+test('connect_five_pairs_across_subsets_complete_one_round', async ({ page }) => {
   await page.setViewportSize({ width: 568, height: 320 })
-  await expect(level.locator('option[value="5"]')).toBeDisabled()
-  await expect(level).toHaveValue('5')
-  await expect(start(page)).toBeDisabled()
-  await expect(page.getByText(/chiều cao/i).first()).toBeVisible()
+  await fixSample(page, 0.999)
+  await play(page)
+  await expect(connect(page, 'left')).toHaveCount(3)
+  const first = await connectIds(page)
+  await screenshot(page, 'connect-landscape')
+  for (const id of first) {
+    await drag(page, connect(page, 'left', id), connect(page, 'right', id))
+  }
+  await expect(connect(page, 'left')).toHaveCount(2)
+  await expect(page.locator('.connect-lines line')).toHaveCount(0)
+  const last = await connectIds(page)
+  expect(new Set([...first, ...last]).size).toBe(5)
+  expect((await saved(page))?.completedRounds).toBe(0)
+  await screenshot(page, 'connect-second-subset')
+  for (const id of last) {
+    await drag(page, connect(page, 'left', id), connect(page, 'right', id))
+  }
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1 })
+  await expect(page.locator('.round-feedback')).toHaveCount(0)
+  expect((await saved(page))?.completedRounds).toBe(1)
 })
 
-test('connect_safe_area_insets_are_included_in_level_capacity', async ({ page }) => {
-  await page.setViewportSize({ width: 740, height: 384 })
-  await openSettings(page, 'connect')
-  const level = page.getByRole('combobox', { name: 'Mức độ', exact: true })
-  await level.selectOption('5')
-  await page.evaluate(() => {
-    const style = document.createElement('style')
-    style.id = 'safe-area-test'
-    style.textContent = ':root { --safe-area-inset-top: 32px; --safe-area-inset-bottom: 24px; }'
-    document.head.append(style)
-  })
-  await expect(level.locator('option[value="5"]')).toBeDisabled()
-  await expect(start(page)).toBeDisabled()
-  await page.evaluate(() => { document.querySelector('#safe-area-test')!.textContent = ':root { --safe-area-inset-top: 0px; --safe-area-inset-bottom: 0px; }' })
-  await expect(level.locator('option[value="5"]')).toBeEnabled()
-  await start(page).click()
+test('connect_safe_area_reflows_the_same_board_without_losing_matches', async ({ page }) => {
+  await page.setViewportSize({ width: 740, height: 420 })
+  await fixSample(page, 0.999)
+  await play(page)
+  await expect(connect(page, 'left')).toHaveCount(4)
+  const [a, b, c, d] = await connectIds(page)
+  await drag(page, connect(page, 'left', a), connect(page, 'right', a))
+  await drag(page, connect(page, 'left', b), connect(page, 'right', b), false)
+  await expect(page.locator('line[data-preview]')).toBeVisible()
+  await page.addStyleTag({ content: ':root { --safe-area-inset-top: 32px; --safe-area-inset-bottom: 24px; }' })
+  await expect(connect(page, 'left')).toHaveCount(3)
+  await expect(page.locator('line[data-preview]')).toHaveCount(0)
+  await page.mouse.up()
+  await expect(connect(page, 'left', a)).toBeDisabled()
+  await expect(connect(page, 'left', b)).toBeEnabled()
+  await expect(page.locator('.connect-lines line')).toHaveCount(1)
   await expect(stop(page)).toBeVisible()
-  await page.evaluate(() => { document.querySelector('#safe-area-test')!.textContent = ':root { --safe-area-inset-top: 32px; --safe-area-inset-bottom: 24px; }' })
-  await expect(end(page)).toBeVisible()
-  expect((await saved(page))?.reason).toBe('stopped')
+  for (const id of [b, c]) {
+    await drag(page, connect(page, 'left', id), connect(page, 'right', id))
+  }
+  await expect(connect(page, 'left', d)).toBeEnabled()
+  expect((await saved(page))?.completedRounds).toBe(0)
+})
+
+test('one_pair_connect_and_shadow_use_a_full_round', async ({ page }) => {
+  await fixSample(page, 0)
+  await play(page)
+  await expect(connect(page, 'left')).toHaveCount(1)
+  const [id] = await connectIds(page)
+  await drag(page, connect(page, 'left', id), connect(page, 'right', id))
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1 })
+  await stop(page).click()
+  await adult(page).click()
+  await home(page).click()
+  await play(page, 'shadow')
+  const source = page.locator('.shadow-source')
+  const target = page.locator('.shadow-target')
+  await expect(source).toHaveCount(1)
+  await expect(target.locator('.shadow-silhouette')).toBeVisible()
+  await drag(page, source, target)
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1 })
 })
 
 test('shadow_snap_and_wrong_drop', async ({ page }) => {
-  await play(page, 'shadow', 3, 1)
-  await screenshot(page, 'shadow-landscape')
+  await fixSample(page, 0.25)
+  await play(page, 'shadow')
   const sources = page.locator('[data-shadow-side="source"]')
   const [a, b] = await sources.evaluateAll((els) => els.map(el => (el as HTMLElement).dataset.shadowId!))
   const target = (id: string) => page.locator(`[data-shadow-side="target"][data-shadow-id="${id}"]`)
@@ -129,12 +174,12 @@ test('shadow_snap_and_wrong_drop', async ({ page }) => {
   await expect(target(a)).toBeDisabled()
   await sources.nth(1).click()
   await target(b).click()
-  await expect(end(page)).toBeVisible()
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1 })
 })
 
 test('count_wrong_then_correct', async ({ page }) => {
-  await page.addInitScript(() => { Math.random = () => 0.75 })
-  await play(page, 'counting', 3, 1)
+  await fixSample(page, 0.75)
+  await play(page, 'counting')
   const pictures = page.locator('.counting-object img')
   await expect(pictures).toHaveCount(4)
   for (const picture of await pictures.all()) {
@@ -148,7 +193,6 @@ test('count_wrong_then_correct', async ({ page }) => {
     expect(artwork.path).toBe('/assets/images/duck.svg')
     expect(Math.min(...artwork.dimensions)).toBeGreaterThan(0)
   }
-  await screenshot(page, 'counting-landscape')
   const objects = page.locator('.counting-object')
   const n = await objects.count()
   await objects.first().click()
@@ -158,70 +202,75 @@ test('count_wrong_then_correct', async ({ page }) => {
   await expect(objects).toHaveCount(n)
   expect((await saved(page))?.completedRounds).toBe(0)
   await correctCount(page)
-  await expect(end(page)).toBeVisible()
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1 })
 })
 
-test('three_rounds_ends_no_restart', async ({ page }) => {
+test('default_five_rounds_ends_no_restart', async ({ page }) => {
   await play(page, 'counting')
-  for (let round = 1; round <= 3; round++) {
+  for (let round = 1; round <= 5; round++) {
     await correctCount(page)
     await expect.poll(async () => (await saved(page))?.completedRounds).toBe(round)
-    if (round < 3) await expect(page.locator('.round-feedback')).toHaveCount(0)
+    if (round < 5) await expect(page.locator('.round-feedback')).toHaveCount(0)
   }
   await expect(end(page)).toBeVisible()
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'ended', reason: 'rounds', completedRounds: 5 })
   await page.reload()
   await expect(end(page)).toBeVisible()
   await expect(start(page)).toHaveCount(0)
   await adult(page).click()
+  await expect(page.getByRole('heading', { name: games.counting })).toBeVisible()
   await expect(start(page)).toBeEnabled()
   expect((await saved(page))?.status).toBe('ended')
 })
 
 for (const scenario of ['drag', 'feedback'] as const) {
-  test('expiry_during_drag_or_feedback / ' + scenario, async ({ page }) => {
+  test('advancing_time_keeps_' + scenario + '_active', async ({ page }) => {
     await page.clock.install()
+    await fixSample(page, 0)
     await play(page, scenario === 'drag' ? 'connect' : 'counting')
     const session = (await saved(page))!
     if (scenario === 'drag') {
       const [a] = await connectIds(page)
       await drag(page, connect(page, 'left', a), connect(page, 'right', a), false)
       await expect(page.locator('line[data-preview]')).toBeVisible()
-      // Change only wall time; the pointer release itself must check the deadline.
-      await page.clock.setSystemTime(session.deadlineAt)
+      await page.clock.setSystemTime(session.startedAt + 900_000)
       await page.mouse.up()
     } else {
       await correctCount(page)
       await expect(page.locator('.round-feedback')).toBeVisible()
-      await page.clock.setSystemTime(session.deadlineAt)
+      await page.clock.setSystemTime(session.startedAt + 900_000)
       await page.clock.runFor(600)
+      await expect(page.locator('.round-feedback')).toHaveCount(0)
     }
-    await expect(end(page)).toBeVisible()
-    await page.clock.runFor(1000)
-    expect(await saved(page)).toMatchObject({ status: 'ended', reason: 'time', completedRounds: scenario === 'drag' ? 0 : 1 })
-    await expect(page.locator('.round-feedback, .connect-game, .counting-game')).toHaveCount(0)
+    await expect(stop(page)).toBeVisible()
+    await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1, id: session.id })
+    expect(await saved(page)).not.toHaveProperty('deadlineAt')
   })
 }
 
-test('reload_and_background_do_not_extend', async ({ page }) => {
+test('reload_and_fifteen_minutes_in_background_keep_progress', async ({ page }) => {
   await page.clock.install()
   await play(page, 'counting')
   await correctCount(page)
+  await expect.poll(() => saved(page)).toMatchObject({ completedRounds: 1 })
   const original = (await saved(page))!
   await page.reload()
   await expect(stop(page)).toBeVisible()
-  expect(await saved(page)).toMatchObject({ deadlineAt: original.deadlineAt, completedRounds: 1, id: original.id })
+  expect(await saved(page)).toMatchObject({ completedRounds: 1, id: original.id })
   // Chromium headless doesn't background the tab; simulate the OS visibility signal.
   await page.evaluate(() => {
     Object.defineProperty(document, 'hidden', { configurable: true, value: true })
     document.dispatchEvent(new Event('visibilitychange'))
   })
-  await page.clock.setSystemTime(original.deadlineAt + 100)
+  await page.clock.setSystemTime(original.startedAt + 900_000)
   await page.evaluate(() => {
     Object.defineProperty(document, 'hidden', { configurable: true, value: false })
     document.dispatchEvent(new Event('visibilitychange'))
   })
-  await expect(end(page)).toBeVisible()
-  expect(await saved(page)).toMatchObject({ deadlineAt: original.deadlineAt, reason: 'time' })
+  await expect(stop(page)).toBeVisible()
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1, id: original.id })
+  await correctCount(page)
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 2, id: original.id })
 })
 
 for (const action of ['stop', 'clear'] as const) {
@@ -235,7 +284,7 @@ for (const action of ['stop', 'clear'] as const) {
     await stop(page).click()
     await expect.poll(async () => (await saved(page))?.reason).toBe('stopped')
     if (action === 'clear') {
-      await adult(page).click()
+      await openPreferences(page)
       await page.getByRole('button', { name: 'Xóa dữ liệu trên thiết bị' }).click()
       await expect.poll(() => saved(page)).toBeNull()
     }
@@ -261,7 +310,7 @@ for (const action of ['stop', 'clear'] as const) {
 }
 
 test('start_after_writer_contention_uses_saved_adult_settings', async ({ page, context }) => {
-  await play(page, 'counting', 1, 1)
+  await play(page, 'counting')
   const firstId = (await saved(page))!.id
   const other = await context.newPage()
   await other.goto('/')
@@ -275,9 +324,9 @@ test('start_after_writer_contention_uses_saved_adult_settings', async ({ page, c
   await expect(stop(other)).toBeVisible()
   const next = await saved(other)
   expect(next?.id).not.toBe(firstId)
-  expect(next?.settings).toMatchObject({ game: 'counting', roundLimit: 1 })
+  expect(next?.settings).toMatchObject({ game: 'counting', roundLimit: 5 })
   await correctCount(other)
-  await expect(end(other)).toBeVisible()
+  await expect.poll(() => saved(other)).toMatchObject({ status: 'active', completedRounds: 1 })
 })
 
 test('adult_settings_remain_visible_until_writer_lock_is_available', async ({ page, context }) => {
@@ -340,15 +389,15 @@ test('parked_writer_rechecks_after_another_tab_clears', async ({ page, context }
   await other.goto('/')
   await expect(other.locator('.counting-game, .session-end')).toBeVisible()
   if (await stop(other).isVisible()) await stop(other).click()
-  await adult(other).click()
+  await openPreferences(other)
   await other.getByRole('button', { name: 'Xóa dữ liệu trên thiết bị' }).click()
   await expect.poll(() => saved(other)).toBeNull()
   await devtools.send('Page.setWebLifecycleState', { state: 'active' })
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })))
   await expect(page.getByRole('button', { name: games.connect, exact: true })).toBeVisible()
   expect(await saved(page)).toBeNull()
-  await adult(page).click()
-  await expect(page.getByRole('combobox', { name: 'Trò chơi', exact: true })).toHaveValue('connect')
+  await openSettings(page, 'connect')
+  await expect(rounds(page)).toHaveValue('5')
 })
 
 // MainActivity uses dispatchEvent's return value to decide whether Android handles Back.
@@ -363,6 +412,11 @@ test('android_back_stops_or_navigates_without_starting_a_session', async ({ page
   await expect(page.getByRole('button', { name: games.connect, exact: true })).toBeVisible()
   expect(await saved(page)).toBeNull()
   expect(await androidBack(page)).toBe(true)
+
+  await adult(page).click()
+  await expect(page.getByRole('heading', { name: 'Cài đặt người lớn' })).toBeVisible()
+  expect(await androidBack(page)).toBe(false)
+  await expect(page.getByRole('button', { name: games.connect, exact: true })).toBeVisible()
 
   await play(page, 'counting')
   const original = (await saved(page))!
@@ -474,11 +528,11 @@ test('stale_adult_form_must_review_latest_saved_settings_before_start', async ({
   await page.goto('/')
   const other = await context.newPage()
   await other.goto('/')
-  await adult(page).click()
-  await adult(other).click()
-  const limit = other.getByRole('combobox', { name: 'Số lượt tối đa', exact: true })
+  await openSettings(page, 'connect')
+  await openSettings(other, 'connect')
+  const limit = rounds(other)
   await expect(limit).toBeEnabled()
-  await page.getByRole('combobox', { name: 'Số lượt tối đa', exact: true }).selectOption('10')
+  await rounds(page).selectOption('10')
   await expect.poll(() => page.evaluate(key => localStorage.getItem(key), SETTINGS_KEY))
     .toContain('"roundLimit":10')
   await start(other).click()
@@ -491,12 +545,57 @@ test('stale_adult_form_must_review_latest_saved_settings_before_start', async ({
   expect((await saved(other))?.settings.roundLimit).toBe(10)
 })
 
-test('stop_always_available', async ({ page }) => {
-  await play(page)
-  await page.setViewportSize({ width: 360, height: 800 })
-  await expect(page.getByRole('img', { name: 'Xoay ngang thiết bị' })).toBeVisible()
+test('stale_preferences_edit_preserves_session_setup', async ({ page, context }) => {
+  await page.goto('/')
+  await adult(page).click()
+  const reducedMotion = page.getByLabel('Giảm chuyển động')
+  await expect(reducedMotion).toBeEnabled()
+
+  const setup = await context.newPage()
+  await setup.goto('/')
+  await openSettings(setup, 'shadow')
+  await theme(setup).selectOption('sea')
+  await rounds(setup).selectOption('10')
+  const current = { game: 'shadow', theme: 'sea', roundLimit: 10 }
+  await expect.poll(() => setup.evaluate(key => JSON.parse(localStorage.getItem(key)!), SETTINGS_KEY)).toMatchObject(current)
+
+  await reducedMotion.uncheck()
+  await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key)!), SETTINGS_KEY))
+    .toMatchObject({ ...current, reducedMotion: false })
+})
+
+test('portrait_prompt_covers_home_setup_preferences_play_and_end', async ({ page }) => {
+  const portrait = { width: 360, height: 800 }
+  const landscape = { width: 800, height: 360 }
+  async function showsOnlyRotate() {
+    await expect(rotate(page)).toBeVisible()
+    expect((await page.locator('body').innerText()).trim()).toBe('')
+  }
+  await page.setViewportSize(portrait)
+  await page.goto('/')
+  await showsOnlyRotate()
+  await expect(page.getByRole('button')).toHaveCount(0)
+  await page.setViewportSize(landscape)
+  await adult(page).click()
+  await expect(page.getByRole('heading', { name: 'Cài đặt người lớn' })).toBeVisible()
+  await page.setViewportSize(portrait)
+  await showsOnlyRotate()
+  await page.setViewportSize(landscape)
+  await home(page).click()
+  await openSettings(page, 'connect')
+  await page.setViewportSize(portrait)
+  await showsOnlyRotate()
+  await expect(start(page)).toHaveCount(0)
+  await page.setViewportSize(landscape)
+  await start(page).click()
+  await expect(stop(page)).toBeVisible()
+  await page.setViewportSize(portrait)
+  await showsOnlyRotate()
   await expect(page.locator('.connect-target:visible')).toHaveCount(0)
   await stop(page).click()
+  await showsOnlyRotate()
+  await expect(stop(page)).toHaveCount(0)
+  await page.setViewportSize(landscape)
   await expect(end(page)).toBeVisible()
   expect((await saved(page))?.reason).toBe('stopped')
 })
@@ -506,21 +605,23 @@ for (const entry of ['adult', 'counting'] as const) {
     const invalid = JSON.stringify({ ...DEFAULT_SETTINGS, roundLimit: 0 })
     await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [SETTINGS_KEY, invalid])
     await page.goto('/')
-    if (entry === 'adult') await adult(page).click()
-    else await openSettings(page, entry)
-
-    await expect(start(page)).toBeEnabled()
+    const game = entry === 'adult' ? 'connect' : entry
     const warning = page.getByRole('alert')
+    if (entry === 'adult') {
+      await adult(page).click()
+      await expect(warning).toContainText('Cài đặt đã lưu không hợp lệ')
+      await expect(page.getByLabel('Giọng nói tiếng Việt')).not.toBeChecked()
+      await expect(page.getByLabel('Giảm chuyển động')).toBeChecked()
+      await expect(start(page)).toHaveCount(0)
+      await home(page).click()
+    }
+    await openSettings(page, game)
+    await expect(start(page)).toBeEnabled()
     await expect(warning).toContainText('Cài đặt đã lưu không hợp lệ')
     await expect(warning).toBeInViewport()
-    const game = entry === 'adult' ? 'connect' : entry
-    await expect(page.getByRole('combobox', { name: 'Trò chơi', exact: true })).toHaveValue(game)
-    await expect(page.getByRole('combobox', { name: 'Chủ đề', exact: true })).toHaveValue('farm')
-    await expect(page.getByRole('combobox', { name: 'Mức độ', exact: true })).toHaveValue('1')
-    await expect(page.getByRole('combobox', { name: 'Thời lượng', exact: true })).toHaveValue('5')
-    await expect(page.getByRole('combobox', { name: 'Số lượt tối đa', exact: true })).toHaveValue('3')
-    await expect(page.getByLabel('Giọng nói tiếng Việt')).not.toBeChecked()
-    await expect(page.getByLabel('Giảm chuyển động')).toBeChecked()
+    await expect(page.getByRole('heading', { name: games[game] })).toBeVisible()
+    await expect(theme(page)).toHaveValue('farm')
+    await expect(rounds(page)).toHaveValue('5')
     expect(await saved(page)).toBeNull()
     expect(await page.evaluate(key => localStorage.getItem(key), SETTINGS_KEY)).toBe(invalid)
 
@@ -538,36 +639,46 @@ test('invalid_settings_discovered_at_start_return_to_adult_review', async ({ pag
   await start(page).click()
 
   await expect(page.getByRole('alert')).toContainText('Cài đặt đã lưu không hợp lệ')
-  await expect(page.getByRole('combobox', { name: 'Trò chơi', exact: true })).toHaveValue('connect')
+  await expect(page.getByRole('heading', { name: games.shadow })).toBeVisible()
   expect(await saved(page)).toBeNull()
   await start(page).click()
   await expect(stop(page)).toBeVisible()
-  expect((await saved(page))?.settings).toEqual(DEFAULT_SETTINGS)
+  expect((await saved(page))?.settings).toEqual({ ...DEFAULT_SETTINGS, game: 'shadow' })
 })
 
-test('settings_persist_and_clear', async ({ page }) => {
-  await page.setViewportSize({ width: 960, height: 720 })
-  await openSettings(page, 'shadow')
-  await page.getByRole('combobox', { name: 'Chủ đề', exact: true }).selectOption('sea')
-  await page.getByRole('combobox', { name: 'Mức độ', exact: true }).selectOption('4')
-  await page.getByRole('combobox', { name: 'Thời lượng', exact: true }).selectOption('10')
-  await page.getByRole('combobox', { name: 'Số lượt tối đa', exact: true }).selectOption('7')
+test('settings_persist_and_clear_in_separate_views', async ({ page }) => {
+  await page.goto('/')
+  await adult(page).click()
+  await expect(page.getByRole('heading', { name: 'Cài đặt người lớn' })).toBeVisible()
+  await expect(page.getByRole('combobox')).toHaveCount(0)
+  await expect(start(page)).toHaveCount(0)
   await page.getByLabel('Giảm chuyển động').uncheck()
-  await screenshot(page, 'adult-settings')
+  await home(page).click()
+  await openSettings(page, 'shadow')
+  await theme(page).selectOption('sea')
+  await rounds(page).selectOption('20')
+  await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key)!), SETTINGS_KEY))
+    .toMatchObject({ game: 'shadow', theme: 'sea', roundLimit: 20, reducedMotion: false })
   await page.reload()
   await adult(page).click()
-  await expect(page.getByRole('combobox', { name: 'Trò chơi', exact: true })).toHaveValue('shadow')
-  await expect(page.getByRole('combobox', { name: 'Chủ đề', exact: true })).toHaveValue('sea')
-  await expect(page.getByRole('combobox', { name: 'Mức độ', exact: true })).toHaveValue('4')
-  await expect(page.getByRole('combobox', { name: 'Thời lượng', exact: true })).toHaveValue('10')
-  await expect(page.getByRole('combobox', { name: 'Số lượt tối đa', exact: true })).toHaveValue('7')
   await expect(page.getByLabel('Giảm chuyển động')).not.toBeChecked()
+  await home(page).click()
+  await openSettings(page, 'shadow')
+  await expect(theme(page)).toHaveValue('sea')
+  await expect(rounds(page)).toHaveValue('20')
+  await expect(page.getByLabel('Giảm chuyển động')).toHaveCount(0)
   await start(page).click()
   await stop(page).click()
   await adult(page).click()
+  await expect(page.getByRole('heading', { name: games.shadow })).toBeVisible()
+  await home(page).click()
+  await adult(page).click()
   await page.getByRole('button', { name: 'Xóa dữ liệu trên thiết bị' }).click()
   await expect.poll(() => page.evaluate(([a, b]) => [localStorage.getItem(a), localStorage.getItem(b)], [SETTINGS_KEY, SESSION_KEY])).toEqual([null, null])
-  await expect(page.getByRole('combobox', { name: 'Số lượt tối đa', exact: true })).toHaveValue('3')
+  await expect(page.getByLabel('Giảm chuyển động')).toBeChecked()
+  await home(page).click()
+  await openSettings(page, 'connect')
+  await expect(rounds(page)).toHaveValue('5')
 })
 
 test('no_visible_child_text_except_numbers', async ({ page }) => {
@@ -598,6 +709,7 @@ test('no_external_requests', async ({ page, context, baseURL }) => {
 })
 
 test('offline_after_initial_cache', async ({ page, context }) => {
+  await fixSample(page, 0)
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true)
   const cached = await page.evaluate(async () => {
@@ -610,7 +722,7 @@ test('offline_after_initial_cache', async ({ page, context }) => {
   await page.getByRole('button', { name: games.shadow, exact: true }).click()
   await page.getByRole('combobox', { name: 'Chủ đề', exact: true }).selectOption('sea')
   await start(page).click()
-  await expect(page.locator('.shadow-source img')).toBeVisible()
+  await expect(page.locator('.shadow-source img').first()).toBeVisible()
   await expect.poll(() => page.locator('.shadow-source img').first().evaluate(img => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
   await page.locator('.shadow-source').first().click()
   await page.locator('.shadow-target').first().click()
@@ -641,7 +753,7 @@ test('queued_start_stays_blocked_after_failed_settings_write', async ({ page }) 
     }
     // Both user actions reach the form before its asynchronous preference save completes.
     const select = element as HTMLSelectElement
-    select.value = '1'
+    select.value = '10'
     select.dispatchEvent(new Event('change', { bubbles: true }))
     select.form!.requestSubmit()
   }, SETTINGS_KEY)
@@ -668,11 +780,11 @@ test('failed_stop_write_and_remove_require_adult_after_recovery', async ({ page 
   await page.reload()
   await expect(end(page)).toBeVisible()
   await expect(stop(page)).toHaveCount(0)
-  await adult(page).click()
-  await expect(start(page)).toBeEnabled()
+  await openPreferences(page)
   await page.getByRole('button', { name: 'Xóa dữ liệu trên thiết bị' }).click()
-  await expect(start(page)).toBeEnabled()
-  expect(await saved(page)).toBeNull()
+  await expect.poll(() => saved(page)).toBeNull()
+  await home(page).click()
+  await openSettings(page, 'connect')
   await start(page).click()
   await expect(page.locator('.connect-game')).toBeVisible()
   expect((await saved(page))?.id).not.toBe(original.id)
@@ -684,34 +796,85 @@ test('quiet_mode_no_audio', async ({ page }) => {
     Object.assign(window, { mediaCalls: calls })
     HTMLMediaElement.prototype.play = async function () { calls.push(this.src) }
   })
-  await play(page, 'counting', 1, 1)
+  await play(page, 'counting')
   await page.locator('.counting-object').first().click()
   await correctCount(page)
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1 })
+  await stop(page).click()
   await expect(end(page)).toBeVisible()
   expect(await page.evaluate(() => (window as unknown as { mediaCalls: string[] }).mediaCalls)).toEqual([])
 })
 
-test('no_overlap_targets_568x320_and_800x360', async ({ page }) => {
-  test.setTimeout(60000)
-  // Force the maximum ten-object question to exercise the tightest counting layout.
-  await page.addInitScript(() => { Math.random = () => 0.999 })
-  for (const [width, height] of [[568, 320], [800, 360]]) {
+async function expectViewport(page: Page, width: number, height: number) {
+  expect(await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.scrollHeight])).toEqual([width, height])
+}
+
+for (const [width, height] of [[568, 320], [800, 360]]) {
+  test(`preparation_has_only_theme_rounds_and_start_at_${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width, height })
+    await openSettings(page, 'shadow')
+    await expect(start(page)).toBeEnabled()
+    await expect(page.getByRole('heading', { name: games.shadow })).toBeVisible()
+    await expect(page.getByRole('combobox')).toHaveCount(2)
+    await expect(page.getByRole('checkbox')).toHaveCount(0)
+    await expect(rounds(page)).toHaveValue('5')
+    expect(await rounds(page).locator('option').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value)))
+      .toEqual(['5', '10', '15', '20', '25', '30'])
+    await expectViewport(page, width, height)
+    await expect(start(page)).toBeInViewport({ ratio: 1 })
+    if (width === 568) await screenshot(page, 'preparation-landscape')
+  })
+
+  test(`maximum_board_spacing_and_no_scroll_at_${width}x${height}_with_safe_area`, async ({ page }) => {
+    await page.setViewportSize({ width, height })
+    await fixSample(page, 0.999)
+    await page.goto('/')
+    await page.addStyleTag({ content: ':root { --safe-area-inset-top: 16px; --safe-area-inset-bottom: 16px; --safe-area-inset-left: 24px; --safe-area-inset-right: 24px; }' })
     for (const game of ['counting', 'shadow', 'connect'] as const) {
-      await play(page, game, game === 'connect' ? (height === 320 ? 3 : 4) : 5)
+      await play(page, game)
+      if (game === 'counting') {
+        await expect(page.locator('.counting-object')).toHaveCount(5)
+        const choices = (await page.locator('.counting-choice').allTextContents()).map(Number)
+        expect(choices).toHaveLength(3)
+        expect(new Set(choices).size).toBe(3)
+        expect(choices).toContain(5)
+        expect(choices.every(n => n >= 1 && n <= 5)).toBe(true)
+      } else if (game === 'shadow') {
+        await expect(page.locator('.shadow-source')).toHaveCount(5)
+        await expect(page.locator('.shadow-silhouette')).toHaveCount(5)
+      } else {
+        await expect(connect(page, 'left')).toHaveCount(3)
+        const left = await connect(page, 'left').first().boundingBox()
+        const right = await connect(page, 'right').first().boundingBox()
+        expect(right!.x - left!.x - left!.width).toBeGreaterThanOrEqual(120)
+        expect(left!.height).toBeGreaterThanOrEqual(80)
+      }
       const boxes = await page.locator('button:visible').evaluateAll(els => els.map(el => el.getBoundingClientRect().toJSON()))
-      expect(boxes.length).toBeGreaterThan(4)
       for (const [i, a] of boxes.entries()) {
         expect(Math.min(a.width, a.height)).toBeGreaterThanOrEqual(48)
-        expect(a.left >= 0 && a.top >= 0 && a.right <= width && a.bottom <= height).toBeTruthy()
+        expect(a.left >= 24 && a.top >= 16 && a.right <= width - 24 && a.bottom <= height - 16).toBeTruthy()
         for (const b of boxes.slice(i + 1)) {
-          expect(a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom).toBeFalsy()
+          expect(Math.max(a.left - b.right, b.left - a.right, a.top - b.bottom, b.top - a.bottom)).toBeGreaterThanOrEqual(15.9)
         }
       }
-      expect(await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.scrollHeight])).toEqual([width, height])
+      await expectViewport(page, width, height)
+      if (width === 568) await screenshot(page, game + '-safe-area-landscape')
       await stop(page).click()
       await adult(page).click()
-      await page.getByRole('button', { name: 'Về trang chủ' }).click()
+      await home(page).click()
     }
-  }
+  })
+}
+
+test('counting_one_object_has_three_distinct_numeric_choices', async ({ page }) => {
+  await fixSample(page, 0)
+  await play(page, 'counting')
+  await expect(page.locator('.counting-object')).toHaveCount(1)
+  const choices = (await page.locator('.counting-choice').allTextContents()).map(Number)
+  expect(choices).toHaveLength(3)
+  expect(new Set(choices).size).toBe(3)
+  expect(choices).toContain(1)
+  expect(choices.every(n => n >= 1 && n <= 5)).toBe(true)
+  await correctCount(page)
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1 })
 })
