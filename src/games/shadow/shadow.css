@@ -1,0 +1,89 @@
+.shadow-game {
+  position: relative;
+  display: grid;
+  grid-template-rows: repeat(2, minmax(48px, 1fr));
+  gap: 12px;
+  inline-size: min(100%, 50rem);
+  block-size: 100%;
+  min-block-size: 108px;
+  margin-inline: auto;
+  overflow: clip;
+  user-select: none;
+}
+
+.shadow-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(8px, 3vw, 24px);
+}
+
+.shadow-tile {
+  display: grid;
+  place-items: center;
+  inline-size: clamp(48px, 19vw, 124px);
+  block-size: clamp(48px, 100%, 124px);
+  min-inline-size: 48px;
+  min-block-size: 48px;
+  padding: clamp(5px, 2vmin, 12px);
+  border: 1px solid #d9e3d9;
+  border-radius: 16px;
+  background: var(--color-surface, #fffdf8);
+  cursor: pointer;
+}
+
+.shadow-target {
+  background: #f1eee5;
+}
+
+.shadow-source {
+  touch-action: none;
+}
+
+.shadow-tile:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.shadow-source[aria-pressed='true'] {
+  outline: 3px solid var(--color-accent, #316b57);
+  outline-offset: -3px;
+}
+
+.shadow-source[data-shadow-empty] {
+  border-style: dashed;
+  background: transparent;
+}
+
+.shadow-target[data-shadow-matched] {
+  border-color: var(--color-accent, #316b57);
+  background: var(--color-surface, #fffdf8);
+}
+
+.shadow-art {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 0;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.shadow-silhouette {
+  background: #59615c;
+  -webkit-mask: var(--shadow-image) center / contain no-repeat;
+  mask: var(--shadow-image) center / contain no-repeat;
+  mask-mode: alpha;
+}
+
+.shadow-art--lifted {
+  visibility: hidden;
+}
+
+.shadow-drag {
+  position: absolute;
+  z-index: 1;
+  object-fit: contain;
+  pointer-events: none;
+}
