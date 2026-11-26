@@ -34,9 +34,9 @@ it('starts a versioned session with rounds-only settings', () => {
   expect(startSession('session-1', settings, 1_000)).toEqual(active)
 })
 
-it('offers and accepts round choices from 5 through 30 in steps of 5', () => {
-  expect(roundLimits).toEqual([5, 10, 15, 20, 25, 30])
-  for (const roundLimit of [5, 10, 15, 20, 25, 30]) {
+it('offers and accepts round choices from 5 through 10', () => {
+  expect(roundLimits).toEqual([5, 6, 7, 8, 9, 10])
+  for (const roundLimit of [5, 6, 7, 8, 9, 10]) {
     expect(startSession('session-1', { ...settings, roundLimit }, 1_000).settings.roundLimit).toBe(roundLimit)
   }
 })
@@ -93,6 +93,22 @@ it.each([
 ])('migrates recognized legacy preferences to a round choice', (legacy, roundLimit) => {
   expect(decodeSettings(JSON.stringify(legacy))).toEqual({
     settings: { game: 'counting', theme: 'fruit', roundLimit, audio: true, reducedMotion: false },
+    migrated: true,
+  })
+})
+
+it.each([5, 10, 15, 20, 25, 30])('migrates saved five-field round limit %i', roundLimit => {
+  const saved = { ...settings, roundLimit }
+  expect(decodeSettings(JSON.stringify(saved))).toEqual({
+    settings: { ...settings, roundLimit: roundLimit > 10 ? 10 : roundLimit },
+    migrated: roundLimit > 10,
+  })
+})
+
+it('normalizes old seven-field round counts and preserves preferences', () => {
+  const old = { ...legacySettings, game: 'shadow' as const, theme: 'school' as const, roundLimit: 10 }
+  expect(decodeSettings(JSON.stringify(old))).toEqual({
+    settings: { game: 'shadow', theme: 'school', roundLimit: 10, audio: true, reducedMotion: false },
     migrated: true,
   })
 })

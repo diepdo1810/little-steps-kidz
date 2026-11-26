@@ -25,7 +25,18 @@ export function decodeSettings(raw: string): { settings: Settings; migrated: boo
   let value: unknown
   try { value = JSON.parse(raw) } catch { return null }
   if (isSettings(value)) return { settings: value, migrated: false }
-  if (!hasSettingsPreferences(value) || Object.keys(value).length !== 7) return null
+  if (!hasSettingsPreferences(value)) return null
+
+  if (Object.keys(value).length === 5) {
+    const roundLimit = value.roundLimit
+    if (typeof roundLimit !== 'number' || ![5, 10, 15, 20, 25, 30].includes(roundLimit)) return null
+    return {
+      settings: { game: value.game, theme: value.theme, roundLimit: Math.min(roundLimit, 10), audio: value.audio, reducedMotion: value.reducedMotion },
+      migrated: roundLimit > 10,
+    }
+  }
+
+  if (Object.keys(value).length !== 7) return null
 
   const { game, theme, level, minutes, roundLimit, audio, reducedMotion } = value
   if (typeof level !== 'number' || !Number.isInteger(level) || level < 1 || level > 5 ||

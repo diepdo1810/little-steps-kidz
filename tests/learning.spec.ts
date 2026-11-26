@@ -58,6 +58,39 @@ function connect(page: Page, side: string, id?: string) {
 async function connectIds(page: Page, side = 'left') {
   return connect(page, side).evaluateAll((buttons) => buttons.map(b => (b as HTMLElement).dataset.connectId!))
 }
+async function expectConnectPreview(page: Page) {
+  // A horizontal stroke has positive length even when its bounding box has zero height.
+  const preview = page.locator('line[data-preview]')
+  await expect(preview).toHaveCount(1)
+  expect(await preview.evaluate(line => (line as SVGLineElement).getTotalLength())).toBeGreaterThan(0)
+}
+function shadow(page: Page, side: 'source' | 'target', id?: string) {
+  return page.locator(`[data-shadow-side="${side}"]${id ? `[data-shadow-id="${id}"]` : ''}`)
+}
+async function finishVisibleRound(page: Page, game: keyof typeof games, size: number) {
+  if (game === 'counting') {
+    await correctCount(page)
+    return
+  }
+  const sources = game === 'connect' ? connect(page, 'left') : shadow(page, 'source')
+  const idAttribute = game === 'connect' ? 'data-connect-id' : 'data-shadow-id'
+  for (let matched = 0; matched < size; matched++) {
+    const next = sources.and(page.locator(':enabled')).first()
+    const id = (await next.getAttribute(idAttribute))!
+    await next.click()
+    await (game === 'connect' ? connect(page, 'right', id) : shadow(page, 'target', id)).click()
+  }
+}
+async function expectNextRound(page: Page, completedRounds: number) {
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds })
+  await expect(page.locator('.round-feedback')).toHaveCount(0)
+}
+async function reachRound(page: Page, game: keyof typeof games, round: number) {
+  for (let size = 1; size < round; size++) {
+    await finishVisibleRound(page, game, size)
+    await expectNextRound(page, size)
+  }
+}
 async function screenshot(page: Page, name: string) {
   const path = test.info().outputPath(name + '.png')
   await page.screenshot({ path })
@@ -65,19 +98,19 @@ async function screenshot(page: Page, name: string) {
 }
 
 test('connect_two_pairs_tap_and_drag', async ({ page }) => {
-  await fixSample(page, 0.25)
   await play(page, 'connect')
+  await reachRound(page, 'connect', 2)
   const [a, b] = await connectIds(page)
   await connect(page, 'right', a).click()
   await connect(page, 'left', a).click()
   await expect(page.locator('.connect-lines line')).toHaveCount(1)
   await drag(page, connect(page, 'left', b), connect(page, 'right', b))
-  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1 })
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 2 })
 })
 
 test('connect_drag_snaps_when_released_32px_beyond_either_tile_edge', async ({ page }) => {
-  await fixSample(page, 0.25)
   await play(page, 'connect')
+  await reachRound(page, 'connect', 2)
   const [leftId, rightId] = await connectIds(page)
 
   const leftFrom = await center(connect(page, 'left', leftId))
@@ -96,17 +129,17 @@ test('connect_drag_snaps_when_released_32px_beyond_either_tile_edge', async ({ p
   await page.mouse.move(leftTarget!.x + leftTarget!.width + 32, leftTarget!.y + leftTarget!.height / 2, { steps: 5 })
   await page.mouse.up()
 
-  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1 })
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 2 })
 })
 
 test('connect_wrong_pair_cancel_resize', async ({ page }) => {
-  await fixSample(page, 0.25)
   await play(page)
+  await reachRound(page, 'connect', 2)
   const [a, b] = await connectIds(page)
   await drag(page, connect(page, 'left', a), connect(page, 'right', b))
   await expect(page.locator('.connect-lines line')).toHaveCount(0)
   await drag(page, connect(page, 'left', b), connect(page, 'right', b), false)
-  await expect(page.locator('line[data-preview]')).toBeVisible()
+  await expectConnectPreview(page)
   await connect(page, 'left', b).dispatchEvent('pointercancel', { pointerId: 1 })
   await page.mouse.up()
   await expect(page.locator('.connect-lines line')).toHaveCount(0)
@@ -116,13 +149,13 @@ test('connect_wrong_pair_cancel_resize', async ({ page }) => {
   const before = await line.getAttribute('x2')
   await page.setViewportSize({ width: 568, height: 320 })
   await expect(line).not.toHaveAttribute('x2', before!)
-  expect((await saved(page))?.completedRounds).toBe(0)
+  expect((await saved(page))?.completedRounds).toBe(1)
 })
 
 test('connect_five_pairs_across_subsets_complete_one_round', async ({ page }) => {
   await page.setViewportSize({ width: 568, height: 320 })
-  await fixSample(page, 0.999)
   await play(page)
+  await reachRound(page, 'connect', 5)
   await expect(connect(page, 'left')).toHaveCount(3)
   const first = await connectIds(page)
   await screenshot(page, 'connect-landscape')
@@ -136,25 +169,24 @@ test('connect_five_pairs_across_subsets_complete_one_round', async ({ page }) =>
   expect(new Set([...first, ...last]).size).toBe(5)
   expect(new Set(right)).toEqual(new Set(last))
   expect(right).not.toEqual(last)
-  expect((await saved(page))?.completedRounds).toBe(0)
+  expect((await saved(page))?.completedRounds).toBe(4)
   await screenshot(page, 'connect-second-subset')
   for (const id of last) {
     await drag(page, connect(page, 'left', id), connect(page, 'right', id))
   }
-  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1 })
-  await expect(page.locator('.round-feedback')).toHaveCount(0)
-  expect((await saved(page))?.completedRounds).toBe(1)
+  await expect(end(page)).toBeVisible()
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'ended', reason: 'rounds', completedRounds: 5 })
 })
 
 test('connect_safe_area_reflows_the_same_board_without_losing_matches', async ({ page }) => {
   await page.setViewportSize({ width: 740, height: 490 })
-  await fixSample(page, 0.999)
   await play(page)
+  await reachRound(page, 'connect', 5)
   await expect(connect(page, 'left')).toHaveCount(5)
   const [a, b, c, d] = await connectIds(page)
   await drag(page, connect(page, 'left', a), connect(page, 'right', a))
   await drag(page, connect(page, 'left', b), connect(page, 'right', b), false)
-  await expect(page.locator('line[data-preview]')).toBeVisible()
+  await expectConnectPreview(page)
   await page.addStyleTag({ content: ':root { --safe-area-inset-top: 32px; --safe-area-inset-bottom: 24px; }' })
   await expect(connect(page, 'left')).toHaveCount(3)
   await expect(page.locator('line[data-preview]')).toHaveCount(0)
@@ -167,11 +199,10 @@ test('connect_safe_area_reflows_the_same_board_without_losing_matches', async ({
     await drag(page, connect(page, 'left', id), connect(page, 'right', id))
   }
   await expect(connect(page, 'left', d)).toBeEnabled()
-  expect((await saved(page))?.completedRounds).toBe(0)
+  expect((await saved(page))?.completedRounds).toBe(4)
 })
 
 test('one_pair_connect_and_shadow_use_a_full_round', async ({ page }) => {
-  await fixSample(page, 0)
   await play(page)
   await expect(connect(page, 'left')).toHaveCount(1)
   const [id] = await connectIds(page)
@@ -189,24 +220,107 @@ test('one_pair_connect_and_shadow_use_a_full_round', async ({ page }) => {
   await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1 })
 })
 
-test('shadow_snap_and_wrong_drop', async ({ page }) => {
-  await fixSample(page, 0.25)
+test('shadow_fast_sweep_returns_at_first_wrong_target_then_catches_on_retry_before_release', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 600 })
   await play(page, 'shadow')
-  const sources = page.locator('[data-shadow-side="source"]')
-  const [a, b] = await sources.evaluateAll((els) => els.map(el => (el as HTMLElement).dataset.shadowId!))
-  const target = (id: string) => page.locator(`[data-shadow-side="target"][data-shadow-id="${id}"]`)
-  await drag(page, sources.first(), target(b))
-  await expect(page.locator('[data-shadow-matched]')).toHaveCount(0)
-  await drag(page, sources.first(), target(a))
-  await expect(target(a)).toBeDisabled()
-  await sources.nth(1).click()
-  await target(b).click()
-  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1 })
+  await reachRound(page, 'shadow', 2)
+  const targets = shadow(page, 'target')
+  await expect(targets).toHaveCount(2)
+  const wrong = targets.first()
+  const correct = targets.last()
+  const wrongId = (await wrong.getAttribute('data-shadow-id'))!
+  const correctId = (await correct.getAttribute('data-shadow-id'))!
+  const source = shadow(page, 'source', correctId)
+  const artwork = source.locator('img')
+  const original = await artwork.boundingBox()
+  const originalSrc = (await artwork.getAttribute('src'))!
+  const from = await center(artwork)
+  const destination = await center(correct)
+  const board = (await page.locator('.shadow-game').boundingBox())!
+  const left = board.x + 16
+  const right = board.x + board.width - 16
+  const preview = page.locator('[data-shadow-drag]')
+
+  async function dragToSide(x: number) {
+    await page.mouse.move(from.x, from.y)
+    await page.mouse.down()
+    await page.mouse.move(x, from.y)
+    await page.mouse.move(x, destination.y)
+    await expect(preview).toBeVisible()
+  }
+
+  // Cross both target tiles in a single move with both endpoints beyond the target row.
+  await dragToSide(left)
+  await page.mouse.move(right, destination.y, { steps: 1 })
+  await expect(preview).toHaveCount(0)
+  await expect(artwork).toBeVisible()
+  expect(await artwork.boundingBox()).toEqual(original)
+  await expect(targets.locator('.shadow-silhouette')).toHaveCount(2)
+  await page.mouse.move(destination.x, destination.y)
+  await expect(correct).toBeEnabled()
+  await screenshot(page, 'shadow-wrong-return-before-release')
+  await page.mouse.up()
+
+  // Sweeping in the other direction reaches the correct target first.
+  await dragToSide(right)
+  await page.mouse.move(left, destination.y, { steps: 1 })
+  await expect(correct.locator('img')).toHaveAttribute('src', originalSrc)
+  await expect(correct).toBeDisabled()
+  await expect(wrong.locator('.shadow-silhouette')).toBeVisible()
+  await expect(source).toHaveAttribute('data-shadow-empty', '')
+  await expect(preview).toHaveCount(0)
+  await screenshot(page, 'shadow-catch-before-release')
+  await page.mouse.up()
+  await shadow(page, 'source', wrongId).click()
+  await wrong.click()
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 2 })
+})
+
+test('shadow_at_800x360_keeps_the_source_row_clear_and_can_match_the_second_target_first', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 360 })
+  await play(page, 'shadow')
+  await reachRound(page, 'shadow', 2)
+  const targets = shadow(page, 'target')
+  await expect(targets).toHaveCount(2)
+  const first = targets.first(), second = targets.last()
+  const firstSource = shadow(page, 'source', (await first.getAttribute('data-shadow-id'))!)
+  const secondSource = shadow(page, 'source', (await second.getAttribute('data-shadow-id'))!)
+  const preview = page.locator('[data-shadow-drag]')
+  const board = (await page.locator('.shadow-game').boundingBox())!
+  const rightEdge = board.x + board.width - 1
+  const from = await center(firstSource), to = await center(first)
+
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  await page.mouse.move(from.x, from.y - 8)
+  await expect(preview).toBeVisible()
+  await page.mouse.move(rightEdge, from.y)
+  await expect(preview).toBeVisible()
+  await page.mouse.move(rightEdge, to.y)
+  await expect(preview).toBeVisible()
+  // The right-hand shadow is wrong and lies before the correct left-hand shadow on this swipe.
+  await page.mouse.move(to.x, to.y, { steps: 1 })
+  await expect(preview).toHaveCount(0)
+  await expect(firstSource.locator('img')).toBeVisible()
+  await expect(targets.locator('.shadow-silhouette')).toHaveCount(2)
+  await page.mouse.up()
+
+  const next = await center(secondSource), destination = await center(second)
+  await page.mouse.move(next.x, next.y)
+  await page.mouse.down()
+  await page.mouse.move(destination.x, next.y)
+  await expect(preview).toBeVisible()
+  await page.mouse.move(destination.x, destination.y)
+  await expect(second).toHaveAttribute('data-shadow-matched', '')
+  await expect(first.locator('.shadow-silhouette')).toBeVisible()
+  await expect(preview).toHaveCount(0)
+  await page.mouse.up()
 })
 
 test('count_wrong_then_correct', async ({ page }) => {
   await fixSample(page, 0.75)
   await play(page, 'counting')
+  await reachRound(page, 'counting', 4)
   const pictures = page.locator('.counting-object img')
   await expect(pictures).toHaveCount(4)
   for (const picture of await pictures.all()) {
@@ -227,17 +341,17 @@ test('count_wrong_then_correct', async ({ page }) => {
   await expect(page.locator('.counting-object[aria-pressed=true]')).toHaveCount(1)
   await page.locator('.counting-choice').filter({ hasNotText: new RegExp('^' + n + '$') }).first().click()
   await expect(objects).toHaveCount(n)
-  expect((await saved(page))?.completedRounds).toBe(0)
+  expect((await saved(page))?.completedRounds).toBe(3)
   await correctCount(page)
-  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 1 })
+  await expect.poll(() => saved(page)).toMatchObject({ status: 'active', completedRounds: 4 })
 })
 
-test('default_five_rounds_ends_no_restart', async ({ page }) => {
+test('default_five_rounds_grow_from_one_to_five_and_end_without_restart', async ({ page }) => {
   await play(page, 'counting')
   for (let round = 1; round <= 5; round++) {
+    await expect(page.locator('.counting-object')).toHaveCount(round)
     await correctCount(page)
-    await expect.poll(async () => (await saved(page))?.completedRounds).toBe(round)
-    if (round < 5) await expect(page.locator('.round-feedback')).toHaveCount(0)
+    if (round < 5) await expectNextRound(page, round)
   }
   await expect(end(page)).toBeVisible()
   await expect.poll(() => saved(page)).toMatchObject({ status: 'ended', reason: 'rounds', completedRounds: 5 })
@@ -250,19 +364,40 @@ test('default_five_rounds_ends_no_restart', async ({ page }) => {
   expect((await saved(page))?.status).toBe('ended')
 })
 
+for (const game of ['counting', 'connect', 'shadow'] as const) {
+  test(`${game}_ten_rounds_follow_the_full_progression_and_end`, async ({ page }) => {
+    await page.setViewportSize({ width: 960, height: 640 })
+    await openSettings(page, game)
+    await rounds(page).selectOption('10')
+    await start(page).click()
+    const sizes = [1, 2, 3, 4, 5, 5, 4, 3, 2, 1]
+    for (const [index, size] of sizes.entries()) {
+      if (game === 'counting') {
+        await expect(page.locator('.counting-object')).toHaveCount(size)
+      } else if (game === 'connect') {
+        await expect(connect(page, 'left')).toHaveCount(size)
+        await expect(connect(page, 'right')).toHaveCount(size)
+      } else {
+        await expect(shadow(page, 'source').locator('img')).toHaveCount(size)
+        await expect(shadow(page, 'target').locator('.shadow-silhouette')).toHaveCount(size)
+      }
+      await finishVisibleRound(page, game, size)
+      if (index + 1 < sizes.length) await expectNextRound(page, index + 1)
+    }
+    await expect(end(page)).toBeVisible()
+    await expect.poll(() => saved(page)).toMatchObject({ status: 'ended', reason: 'rounds', completedRounds: 10 })
+  })
+}
+
 for (const scenario of ['drag', 'feedback'] as const) {
   test('advancing_time_keeps_' + scenario + '_active', async ({ page }) => {
     await page.clock.install()
-    await fixSample(page, 0)
     await play(page, scenario === 'drag' ? 'connect' : 'counting')
     const session = (await saved(page))!
     if (scenario === 'drag') {
       const [a] = await connectIds(page)
       await drag(page, connect(page, 'left', a), connect(page, 'right', a), false)
-      const preview = page.locator('line[data-preview]')
-      // A horizontal SVG line has a zero-height bounding box and a visible stroke.
-      await expect(preview).toHaveCount(1)
-      expect(await preview.evaluate(line => (line as SVGLineElement).getTotalLength())).toBeGreaterThan(0)
+      await expectConnectPreview(page)
       expect(await saved(page)).toMatchObject({ status: 'active', completedRounds: 0, id: session.id })
       await page.clock.setSystemTime(session.startedAt + 900_000)
       await page.mouse.up()
@@ -687,16 +822,16 @@ test('settings_persist_and_clear_in_separate_views', async ({ page }) => {
   await home(page).click()
   await openSettings(page, 'shadow')
   await theme(page).selectOption('sea')
-  await rounds(page).selectOption('20')
+  await rounds(page).selectOption('7')
   await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key)!), SETTINGS_KEY))
-    .toMatchObject({ game: 'shadow', theme: 'sea', roundLimit: 20, reducedMotion: false })
+    .toMatchObject({ game: 'shadow', theme: 'sea', roundLimit: 7, reducedMotion: false })
   await page.reload()
   await adult(page).click()
   await expect(page.getByLabel('Giảm chuyển động')).not.toBeChecked()
   await home(page).click()
   await openSettings(page, 'shadow')
   await expect(theme(page)).toHaveValue('sea')
-  await expect(rounds(page)).toHaveValue('20')
+  await expect(rounds(page)).toHaveValue('7')
   await expect(page.getByLabel('Giảm chuyển động')).toHaveCount(0)
   await start(page).click()
   await stop(page).click()
@@ -740,7 +875,6 @@ test('no_external_requests', async ({ page, context, baseURL }) => {
 })
 
 test('offline_after_initial_cache', async ({ page, context }) => {
-  await fixSample(page, 0)
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true)
   const cached = await page.evaluate(async () => {
@@ -850,7 +984,7 @@ for (const [width, height] of [[568, 320], [800, 360]]) {
     await expect(page.getByRole('checkbox')).toHaveCount(0)
     await expect(rounds(page)).toHaveValue('5')
     expect(await rounds(page).locator('option').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value)))
-      .toEqual(['5', '10', '15', '20', '25', '30'])
+      .toEqual(['5', '6', '7', '8', '9', '10'])
     await expectViewport(page, width, height)
     await expect(start(page)).toBeInViewport({ ratio: 1 })
     if (width === 568) await screenshot(page, 'preparation-landscape')
@@ -858,11 +992,11 @@ for (const [width, height] of [[568, 320], [800, 360]]) {
 
   test(`maximum_board_spacing_and_no_scroll_at_${width}x${height}_with_safe_area`, async ({ page }) => {
     await page.setViewportSize({ width, height })
-    await fixSample(page, 0.999)
     await page.goto('/')
     await page.addStyleTag({ content: ':root { --safe-area-inset-top: 16px; --safe-area-inset-bottom: 16px; --safe-area-inset-left: 24px; --safe-area-inset-right: 24px; }' })
     for (const game of ['counting', 'shadow', 'connect'] as const) {
       await play(page, game)
+      await reachRound(page, game, 5)
       if (game === 'counting') {
         await expect(page.locator('.counting-object')).toHaveCount(5)
         const choices = (await page.locator('.counting-choice').allTextContents()).map(Number)
@@ -899,11 +1033,11 @@ for (const [width, height] of [[568, 320], [800, 360]]) {
 
 test('all_counting_and_shadow_targets_fit_a_400x320_viewport_with_combined_safe_areas', async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 320 })
-  await fixSample(page, 0.999)
   await page.goto('/')
   await page.addStyleTag({ content: ':root { --safe-area-inset-top: 32px; --safe-area-inset-bottom: 24px; --safe-area-inset-left: 24px; --safe-area-inset-right: 24px; }' })
   for (const game of ['counting', 'shadow'] as const) {
     await play(page, game)
+    await reachRound(page, game, 5)
     const board = page.locator('.game-board')
     const bounds = (await board.boundingBox())!
     const targets = board.getByRole('button')
@@ -930,7 +1064,6 @@ test('all_counting_and_shadow_targets_fit_a_400x320_viewport_with_combined_safe_
 })
 
 test('counting_one_object_has_three_distinct_numeric_choices', async ({ page }) => {
-  await fixSample(page, 0)
   await play(page, 'counting')
   await expect(page.locator('.counting-object')).toHaveCount(1)
   const choices = (await page.locator('.counting-choice').allTextContents()).map(Number)

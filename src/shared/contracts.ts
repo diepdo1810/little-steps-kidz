@@ -3,7 +3,7 @@ const themeIds = ['farm', 'fruit', 'sea', 'vegetable', 'school'] as const
 
 export type GameId = typeof gameIds[number]
 export type ThemeId = typeof themeIds[number]
-export const roundLimits = [5, 10, 15, 20, 25, 30] as const
+export const roundLimits = [5, 6, 7, 8, 9, 10] as const
 
 export interface Settings {
   game: GameId
@@ -37,6 +37,7 @@ export interface GameProps {
   assets: readonly Asset[]
   active: boolean
   roundKey: string
+  roundSize: number
 }
 
 export type Rng = () => number

@@ -1,4 +1,4 @@
-import { sampleRoundSize, shuffle } from '../../assets/catalog'
+import { MAX_ROUND_ITEMS, shuffle } from '../../assets/catalog'
 import type { Asset, Rng } from '../../shared/contracts'
 
 export interface ShadowBoard {
@@ -6,8 +6,10 @@ export interface ShadowBoard {
   targets: Asset[]
 }
 
-export function createShadowBoard(pool: readonly Asset[], rng: Rng): ShadowBoard {
-  const pairs = sampleRoundSize(rng)
+export function createShadowBoard(pool: readonly Asset[], pairs: number, rng: Rng): ShadowBoard {
+  if (!Number.isInteger(pairs) || pairs < 1 || pairs > MAX_ROUND_ITEMS) {
+    throw new RangeError(`Shadow Matching requires 1 to ${MAX_ROUND_ITEMS} pairs`)
+  }
   if (!Array.isArray(pool) || pool.length < pairs) {
     throw new RangeError('Not enough assets for the requested pairs')
   }

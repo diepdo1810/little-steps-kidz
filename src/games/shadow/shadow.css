@@ -12,8 +12,11 @@
 }
 
 .shadow-row {
-  display: flex;
-  align-items: center;
+  container-type: size;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(48px, 216px);
+  place-items: center;
   justify-content: center;
   gap: var(--tile-gap, 16px);
   min-inline-size: 0;
@@ -22,9 +25,9 @@
 .shadow-tile {
   display: grid;
   place-items: center;
-  flex: 1 1 0;
   aspect-ratio: 1;
-  max-inline-size: 160px;
+  /* Leave room above the magnet zones and a clear approach down each column. */
+  inline-size: min(160px, 72cqh, 75%);
   max-block-size: 100%;
   min-inline-size: 48px;
   min-block-size: 48px;
@@ -93,6 +96,7 @@
 
 @container game-board (inline-size < 304px) {
   .shadow-row {
+    display: flex;
     flex-wrap: wrap;
     align-content: center;
   }

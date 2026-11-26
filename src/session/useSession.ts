@@ -4,6 +4,7 @@ import { playCue, stopAudio, type AudioCue } from '../services/audio'
 import { decodeSettings, localCues, unavailableReason } from '../services/settings'
 import { createStorage, SETTINGS_KEY, SESSION_KEY } from '../services/storage'
 import type { GameId, Settings } from '../shared/contracts'
+import { roundSizeForTurn } from './roundProgression'
 import { decodeSession, finishRound, isSettings, startSession, stopSession, tick, type Session } from './sessionManager'
 
 type AdultScreen = 'settings' | 'preferences'
@@ -32,6 +33,9 @@ export function useSession() {
   const landscape = ref(window.innerWidth > window.innerHeight)
   const visible = ref(!document.hidden)
   const roundKey = ref('')
+  const roundSize = computed(() => session.value?.status === 'active'
+    ? roundSizeForTurn(session.value.completedRounds + 1)
+    : 1)
   const feedback = ref(false)
   const interactive = computed(() => screen.value === 'learning' && !!roundKey.value &&
     visible.value && landscape.value && !feedback.value)
@@ -488,6 +492,6 @@ export function useSession() {
     }
   }
 
-  return { screen, settings, session, notice, blocked, clearing, landscape, roundKey, interactive,
+  return { screen, settings, session, notice, blocked, clearing, landscape, roundKey, roundSize, interactive,
     feedback, settingsReady, start, stop, complete, allowInput, playInputCue, openSettings, openPreferences, updateSettings, clearData, home }
 }

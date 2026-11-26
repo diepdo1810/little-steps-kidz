@@ -26,14 +26,15 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function setupGame(sample = 0.21, pool: typeof assets = assets.slice(0, 2)) {
-  const random = vi.spyOn(Math, 'random').mockReturnValue(sample)
+function setupGame(roundSize = 2, pool: typeof assets = assets.slice(0, 2)) {
+  const random = vi.spyOn(Math, 'random').mockReturnValue(0.21)
   const game = mount(ConnectGame, {
     props: {
       settings: DEFAULT_SETTINGS,
       assets: pool,
       active: true,
       roundKey: 'first',
+      roundSize,
     },
   })
 
@@ -78,23 +79,23 @@ async function pointer(
 }
 
 describe('ConnectGame', () => {
-  it.each([[0, 1], [0.21, 2], [0.41, 3], [0.61, 4], [0.999, 5]])(
-    'shows the sampled %f board with %i pairs',
-    (sample, pairs) => {
-      const { game } = setupGame(sample, assets)
+  it.each([1, 2, 3, 4, 5])(
+    'shows the requested %i pairs',
+    (pairs) => {
+      const { game } = setupGame(pairs, assets)
       expect(game.findAll('button[data-connect-side="left"]')).toHaveLength(pairs)
       expect(game.findAll('button[data-connect-side="right"]')).toHaveLength(pairs)
       expect(game.text()).toBe('')
     },
   )
 
-  it('samples a fresh pair count only when the round changes', async () => {
-    const { game, random } = setupGame(0, assets)
+  it('uses the new pair count only when the round changes', async () => {
+    const { game, random } = setupGame(1, assets)
     const sourceCount = () => game.findAll('button[data-connect-side="left"]').length
     expect(sourceCount()).toBe(1)
 
-    random.mockReturnValue(0.999)
-    await game.setProps({ active: false })
+    random.mockReturnValue(0)
+    await game.setProps({ active: false, roundSize: 5 })
     notifyResize?.()
     await game.setProps({ active: true })
     expect(sourceCount()).toBe(1)
@@ -103,16 +104,19 @@ describe('ConnectGame', () => {
     expect(sourceCount()).toBe(5)
   })
 
-  it('completes only after all five sampled pairs are linked', async () => {
-    const { game, target, lineCount } = setupGame(0.999, assets)
-    for (const { id } of assets.slice(0, 4)) {
+  it('completes only after all five requested pairs are linked', async () => {
+    const { game, target, lineCount } = setupGame(5, assets)
+    const ids = game.findAll<HTMLButtonElement>('button[data-connect-side="left"]')
+      .map(button => button.element.dataset.connectId!)
+    expect(ids).toHaveLength(5)
+    for (const id of ids.slice(0, 4)) {
       await target('left', id).trigger('click')
       await target('right', id).trigger('click')
       expect(game.emitted('complete')).toBeUndefined()
     }
     expect(lineCount()).toBe(4)
 
-    const { id } = assets[4]
+    const id = ids[4]!
     await target('left', id).trigger('click')
     await target('right', id).trigger('click')
     expect(lineCount()).toBe(5)
@@ -120,7 +124,7 @@ describe('ConnectGame', () => {
   })
 
   it('pages the original five pairs without completing early or resampling', async () => {
-    const { game, random, target } = setupGame(0.999, assets)
+    const { game, random, target } = setupGame(5, assets)
     const visibleIds = (side = 'left') => game.findAll<HTMLButtonElement>(`button[data-connect-side="${side}"]`)
       .map(button => button.element.dataset.connectId!)
     const sampled = visibleIds()
@@ -150,7 +154,7 @@ describe('ConnectGame', () => {
   })
 
   it('balances four pairs into two subsets and keeps the same IDs when resized', async () => {
-    const { game, target, random } = setupGame(0.61, assets)
+    const { game, target, random } = setupGame(4, assets)
     const ids = (side = 'left') => game.findAll<HTMLButtonElement>(`button[data-connect-side="${side}"]`)
       .map(button => button.element.dataset.connectId!)
     const sampled = ids()
@@ -185,7 +189,7 @@ describe('ConnectGame', () => {
   })
 
   it('does not render a board from an insufficient pool', () => {
-    const { game } = setupGame(0.41)
+    const { game } = setupGame(3)
     expect(game.findAll('button')).toHaveLength(0)
     expect(game.emitted('complete')).toBeUndefined()
   })
@@ -216,7 +220,7 @@ describe('ConnectGame', () => {
   })
 
   it('clears a wrong selection and leaves committed lines intact', async () => {
-    const { target, lineCount } = setupGame(0.41, assets.slice(0, 3))
+    const { target, lineCount } = setupGame(3, assets.slice(0, 3))
     await target('left', 'cow').trigger('click')
     await target('right', 'cow').trigger('click')
 

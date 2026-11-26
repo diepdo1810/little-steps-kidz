@@ -13,7 +13,7 @@ import HomeView from './views/HomeView.vue'
 import ParentSettings from './views/ParentSettings.vue'
 import SessionEnd from './views/SessionEnd.vue'
 
-const { screen, settings, session, notice, blocked, clearing, landscape, roundKey, interactive,
+const { screen, settings, session, notice, blocked, clearing, landscape, roundKey, roundSize, interactive,
   feedback, settingsReady, start, stop, complete, allowInput, playInputCue, openSettings, openPreferences, updateSettings, clearData, home } = useSession()
 const games = { connect: ConnectGame, shadow: ShadowGame, counting: CountingGame }
 const assets = computed(() => session.value ? getAssets(session.value.settings.theme) : [])
@@ -35,7 +35,7 @@ onMounted(() => {
       :reduced-motion="session.settings.reducedMotion" :allow-input="allowInput"
       :replay="session.settings.audio && localCues.has(session.settings.game)" @stop="stop" @replay="playInputCue(session.settings.game)">
       <component :is="games[session.settings.game]" v-if="roundKey" :settings="session.settings" :assets="assets" :active="interactive"
-        :round-key="roundKey" @complete="complete" @count="countCue"/>
+        :round-key="roundKey" :round-size="roundSize" @complete="complete" @count="countCue"/>
     </GameLayout>
     <template v-else-if="landscape">
       <HomeView v-if="screen === 'home'" @select="openSettings" @preferences="openPreferences"/>

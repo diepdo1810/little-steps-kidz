@@ -2,7 +2,9 @@
 
 Ứng dụng học tập offline-first cho trẻ, gồm ba trò chơi đếm, ghép bóng và nối hình giống nhau. Ứng dụng không có tài khoản, backend, quảng cáo, theo dõi hay nội dung tải từ bên ngoài. Audio tiếng Việt đang tắt vì repo chưa có bản thu được cấp phép.
 
-Chọn trò ở trang chủ, chọn chủ đề và số lượt rồi bấm **Bắt đầu**. Mặc định là 5 lượt, có thể chọn 5, 10, 15, 20, 25 hoặc 30 lượt. Mỗi lượt có ngẫu nhiên 1–5 đồ vật hoặc cặp hình. Phiên kết thúc khi đủ lượt hoặc khi bấm nút dừng. Khi thiếu chiều cao, Nối hình tự chuyển sang nhóm cặp kế tiếp trong cùng lượt. Vào **Cài đặt người lớn** từ trang chủ để chỉnh âm thanh, giảm chuyển động hoặc xóa dữ liệu.
+Chọn trò ở trang chủ, chọn chủ đề và số lượt rồi bấm **Bắt đầu**. Có thể chọn từ 5 đến 10 lượt, mặc định là 5. Số đồ vật hoặc cặp hình qua 10 lượt lần lượt là **1, 2, 3, 4, 5, 5, 4, 3, 2, 1**. Phiên ngắn dùng các lượt đầu của chuỗi. Phiên không giới hạn thời gian và kết thúc khi đủ lượt hoặc khi bấm nút dừng.
+
+Trong Ghép hình với bóng, kéo hình qua vùng của bóng đúng để ghép ngay. Nếu hình đi qua vùng của bóng sai trước, hình trở về ô ban đầu để trẻ thử lại. Trẻ cũng có thể chạm lần lượt vào hình và bóng. Khi thiếu chiều cao, Nối hình tự chuyển sang nhóm cặp kế tiếp trong cùng lượt. Vào **Cài đặt người lớn** từ trang chủ để chỉnh âm thanh, giảm chuyển động hoặc xóa dữ liệu.
 
 ## Chạy web
 

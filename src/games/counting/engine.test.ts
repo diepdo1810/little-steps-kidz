@@ -5,39 +5,42 @@ import { createQuestion, markCounted } from './engine'
 const assets = getAssets('farm')
 
 describe('createQuestion', () => {
-  it('generates every quantity from one to five with three distinct answers', () => {
-    const quantities = new Set<number>()
-    for (const sample of [0, 0.19, 0.2, 0.39, 0.4, 0.59, 0.6, 0.79, 0.8, 0.999]) {
-      const { asset, quantity, choices } = createQuestion(assets, () => sample)
-      quantities.add(quantity)
+  it.each([1, 2, 3, 4, 5])('uses the requested %i objects with three distinct answers', (requested) => {
+    for (const sample of [0, 0.4, 0.999]) {
+      const { asset, quantity, choices } = createQuestion(assets, requested, () => sample)
       expect(assets).toContain(asset)
+      expect(quantity).toBe(requested)
       expect(choices).toHaveLength(3)
       expect(new Set(choices).size).toBe(3)
       expect(choices.filter((choice) => choice === quantity)).toHaveLength(1)
       expect(choices.every((choice) => Number.isInteger(choice) && choice >= 1 && choice <= 5)).toBe(true)
     }
-    expect(quantities).toEqual(new Set([1, 2, 3, 4, 5]))
   })
 
-  it.each([[0, 1], [0.999, 5]])('maps sample %f to %i objects', (sample, quantity) => {
-    expect(createQuestion(assets, () => sample).quantity).toBe(quantity)
+  it('uses the RNG to select an asset independently of quantity', () => {
+    expect(createQuestion(assets, 5, () => 0).asset).toBe(assets[0])
+    expect(createQuestion(assets, 5, () => 0.999).asset).toBe(assets.at(-1))
   })
 
   it('can place the answer in each of the three choices', () => {
     const positions = new Set<number>()
     for (const sample of [0, 0.4, 0.7, 0.999]) {
-      const { quantity, choices } = createQuestion(assets, () => sample)
+      const { quantity, choices } = createQuestion(assets, 3, () => sample)
       positions.add(choices.indexOf(quantity))
     }
     expect(positions).toEqual(new Set([0, 1, 2]))
   })
 
   it('empty_pool_rejected', () => {
-    expect(() => createQuestion([], () => 0)).toThrow(RangeError)
+    expect(() => createQuestion([], 1, () => 0)).toThrow(RangeError)
+  })
+
+  it.each([0, 6, 1.5, NaN, Infinity])('rejects invalid quantity %s', (quantity) => {
+    expect(() => createQuestion(assets, quantity, () => 0)).toThrow(RangeError)
   })
 
   it.each([NaN, -0.01, 1])('rejects out-of-range RNG result %s', (sample) => {
-    expect(() => createQuestion(assets, () => sample)).toThrow(RangeError)
+    expect(() => createQuestion(assets, 1, () => sample)).toThrow(RangeError)
   })
 })
 

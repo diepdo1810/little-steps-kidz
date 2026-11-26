@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
-import { MAX_ROUND_ITEMS, sampleRoundSize } from '../../assets/catalog'
+import { MAX_ROUND_ITEMS } from '../../assets/catalog'
 import type { GameProps } from '../../shared/contracts'
 import { connectPair, createBoard, maxPairsForHeight, rotateIfAligned } from './engine'
 import type { Board } from './engine'
@@ -263,7 +263,7 @@ watch(() => props.roundKey, () => {
   clearInteraction()
   matched.value = []
   try {
-    board.value = createBoard(props.assets, sampleRoundSize(Math.random), Math.random)
+    board.value = createBoard(props.assets, props.roundSize, Math.random)
   } catch (error) {
     if (!(error instanceof RangeError)) throw error
     board.value = null

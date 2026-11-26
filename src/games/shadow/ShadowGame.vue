@@ -1,16 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import type { Asset, GameProps } from '../../shared/contracts'
+import { firstTargetOnDragPath } from './dragGeometry'
+import type { Point, TargetRect } from './dragGeometry'
 import { createShadowBoard, matchShadow } from './engine'
 import type { ShadowBoard } from './engine'
 
 const props = defineProps<GameProps>()
 const emit = defineEmits<{ complete: [] }>()
-
-interface Point {
-  x: number
-  y: number
-}
 
 interface Gesture {
   pointerId: number
@@ -18,6 +15,7 @@ interface Gesture {
   button: HTMLButtonElement
   start: Point
   artwork: DOMRect
+  previousCenter: Point
   preview: Point | null
 }
 
@@ -35,12 +33,16 @@ function contains(element: HTMLElement, point: Point) {
   return point.x >= left && point.x < right && point.y >= top && point.y < bottom
 }
 
-function targetAt(point: Point) {
-  // Capture sends the release to the source. Read the target at the actual drop coordinates.
-  const targets = area.value?.querySelectorAll<HTMLButtonElement>('button[data-shadow-side="target"]') ?? []
-  for (const target of targets) {
-    if (contains(target, point)) return target.dataset.shadowId
+function unmatchedTargetRects(element: HTMLElement) {
+  const targets: TargetRect[] = []
+  for (const button of element.querySelectorAll<HTMLButtonElement>('button[data-shadow-side="target"]')) {
+    const id = button.dataset.shadowId
+    if (id === undefined || matched.value.includes(id)) continue
+
+    const { left, top, right, bottom } = button.getBoundingClientRect()
+    targets.push({ id, left, top, right, bottom })
   }
+  return targets
 }
 
 function select(id: string) {
@@ -82,24 +84,45 @@ function onPointerDown(event: PointerEvent, asset: Asset) {
     button,
     start: { x: event.clientX, y: event.clientY },
     artwork,
+    previousCenter: { x: artwork.left + artwork.width / 2, y: artwork.top + artwork.height / 2 },
     preview: null,
   }
   button.setPointerCapture?.(event.pointerId)
 }
 
-function onPointerMove(event: PointerEvent) {
+function onDragPointer(event: PointerEvent) {
   const current = gesture.value
-  if (!playable.value || !current || current.pointerId !== event.pointerId || !area.value) return
+  const element = area.value
+  if (!playable.value || !current || current.pointerId !== event.pointerId || !element) return
 
-  const dx = event.clientX - current.start.x
-  const dy = event.clientY - current.start.y
-  if (!current.preview && Math.hypot(dx, dy) < dragThreshold) return
+  const released = event.type === 'pointerup'
+  const point = { x: event.clientX, y: event.clientY }
+  const dx = point.x - current.start.x
+  const dy = point.y - current.start.y
+  if (!current.preview && Math.hypot(dx, dy) < dragThreshold) {
+    if (released) {
+      releaseGesture()
+      if (contains(current.button, point)) select(current.asset.id)
+      else selected.value = null
+    }
+    return
+  }
 
-  const { left, top } = area.value.getBoundingClientRect()
+  const artwork = current.artwork
+  const center = { x: artwork.left + artwork.width / 2 + dx, y: artwork.top + artwork.height / 2 + dy }
+  const targetId = firstTargetOnDragPath(current.previousCenter, center, artwork, unmatchedTargetRects(element))
+  if (targetId !== undefined || released) {
+    releaseGesture()
+    attempt(current.asset.id, targetId)
+    return
+  }
+
+  const { left, top } = element.getBoundingClientRect()
   selected.value = null
   gesture.value = {
     ...current,
-    preview: { x: current.artwork.left - left + dx, y: current.artwork.top - top + dy },
+    previousCenter: center,
+    preview: { x: artwork.left - left + dx, y: artwork.top - top + dy },
   }
 }
 
@@ -116,23 +139,6 @@ function clearInteraction() {
   selected.value = null
 }
 
-function onPointerUp(event: PointerEvent) {
-  const current = gesture.value
-  if (!current || current.pointerId !== event.pointerId) return
-
-  releaseGesture()
-  if (!playable.value) return
-
-  const point = { x: event.clientX, y: event.clientY }
-  const distance = Math.hypot(point.x - current.start.x, point.y - current.start.y)
-  if (!current.preview && distance < dragThreshold && contains(current.button, point)) {
-    select(current.asset.id)
-    return
-  }
-
-  attempt(current.asset.id, targetAt(point))
-}
-
 function onPointerCancel(event: PointerEvent) {
   if (gesture.value?.pointerId === event.pointerId) clearInteraction()
 }
@@ -146,7 +152,7 @@ watch(() => props.roundKey, () => {
   clearInteraction()
   matched.value = []
   try {
-    board.value = createShadowBoard(props.assets, Math.random)
+    board.value = createShadowBoard(props.assets, props.roundSize, Math.random)
   } catch (error) {
     if (!(error instanceof RangeError)) throw error
     board.value = null
@@ -181,8 +187,8 @@ onBeforeUnmount(() => {
     ref="area"
     class="shadow-game"
     aria-label="Ghép hình với bóng"
-    @pointermove="onPointerMove"
-    @pointerup="onPointerUp"
+    @pointermove="onDragPointer"
+    @pointerup="onDragPointer"
     @pointercancel="onPointerCancel"
     @lostpointercapture="onPointerCancel"
   >

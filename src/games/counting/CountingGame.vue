@@ -32,7 +32,7 @@ function answer(choice: number) {
 watch(() => props.roundKey, () => {
   counted.value = []
   locked.value = false
-  question.value = props.assets.length ? createQuestion(props.assets, Math.random) : null
+  question.value = props.assets.length ? createQuestion(props.assets, props.roundSize, Math.random) : null
 }, { immediate: true })
 </script>
 
