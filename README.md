@@ -1,0 +1,49 @@
+# Little Steps
+
+Ứng dụng học tập offline-first cho trẻ, gồm ba trò chơi đếm, ghép bóng và nối hình giống nhau. Ứng dụng không có tài khoản, backend, quảng cáo, theo dõi hay nội dung tải từ bên ngoài. Audio tiếng Việt đang tắt vì repo chưa có bản thu được cấp phép.
+
+Chọn trò ở trang chủ, chọn chủ đề và số lượt rồi bấm **Bắt đầu**. Có thể chọn từ 5 đến 10 lượt, mặc định là 5. Số đồ vật hoặc cặp hình qua 10 lượt lần lượt là **1, 2, 3, 4, 5, 5, 4, 3, 2, 1**. Phiên ngắn dùng các lượt đầu của chuỗi. Phiên không giới hạn thời gian và kết thúc khi đủ lượt hoặc khi bấm nút dừng.
+
+Trong Ghép hình với bóng, kéo hình qua vùng của bóng đúng để ghép ngay. Nếu hình đi qua vùng của bóng sai trước, hình trở về ô ban đầu để trẻ thử lại. Trẻ cũng có thể chạm lần lượt vào hình và bóng. Khi thiếu chiều cao, Nối hình tự chuyển sang nhóm cặp kế tiếp trong cùng lượt. Vào **Cài đặt người lớn** từ trang chủ để chỉnh âm thanh, giảm chuyển động hoặc xóa dữ liệu.
+
+## Chạy web
+
+Yêu cầu Node.js `^22.22.2 || ^24.15.0 || >=26.0.0` và pnpm `11.25.0`.
+
+```bash
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+Để build và kiểm tra offline web:
+
+```bash
+pnpm test
+pnpm typecheck
+pnpm build
+pnpm test:e2e
+```
+
+Service worker cache các file cùng origin trong production build. Kết nối internet không cần cho các trò sau khi app đã tải/cài đặt đầy đủ.
+
+## Build Android debug APK
+
+Yêu cầu JDK 21, Android SDK Platform 36 và Android SDK Build Tools tương thích. Không cần signing key cho debug APK. Cài SDK, chấp nhận licenses, đặt `ANDROID_HOME` hoặc `ANDROID_SDK_ROOT`, sau đó chạy:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+pnpm exec cap sync android
+cd android
+./gradlew assembleDebug
+```
+
+APK đầu ra: `android/app/build/outputs/apk/debug/app-debug.apk`. Cài lên thiết bị đã kết nối bằng `adb install -r app/build/outputs/apk/debug/app-debug.apk`. App ID tạm thời cho bản local là `com.littlesteps.learning`; đổi trước khi phát hành công khai.
+
+Android 1.1 mở theo hướng ngang ngay từ lúc khởi động và hỗ trợ hai chiều ngang. Trên web, biểu tượng xoay máy hiện khi màn hình dọc. Nút dừng vẫn dùng được khi đang chơi. Nút Back của Android dừng phiên đang chơi hoặc quay về trang chủ từ màn hình người lớn và màn hình kết thúc. App không tự tạo phiên mới. Không cần quyền mạng hoặc quyền runtime cho MVP.
+
+## CI build APK
+
+GitHub Actions workflow `.github/workflows/android-apk.yml` chạy khi có push, pull request vào `main`, hoặc chạy thủ công. Workflow chạy unit/E2E tests, typecheck, sync Capacitor và build APK debug. Sau khi thành công, tải APK ở mục **Actions → workflow run → Artifacts**; artifact được giữ trong 14 ngày. Artifact `browser-checks-*` chứa ảnh chụp giao diện ngang và kết quả kiểm thử trình duyệt. Không cần signing secret vì đây là APK debug, chưa dùng để phát hành lên cửa hàng.
+
+Xem trạng thái kiểm thử và blocker của môi trường build hiện tại tại [docs/verification.md](docs/verification.md).
